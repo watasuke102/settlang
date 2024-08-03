@@ -34,6 +34,31 @@ fn space_1(input: &str) -> Result<&str, ParseError> {
   Ok(space_0(chars.as_str()))
 }
 
+/// consume 1 alphabetical or numeric character and return (it, consumed input)
+/// if input does not begin with that, raise UnexpectedChar
+fn alpha_num_1(input: &str) -> Result<(char, &str), ParseError> {
+  let mut chars = input.chars();
+  let Some(c) = chars.next() else {
+    return Err(ParseError::UnexpectedChar);
+  };
+  match c {
+    '0'..='9' | 'A'..='Z' | 'a'..='z' => Ok((c, chars.as_str())),
+    _ => Err(ParseError::UnexpectedChar),
+  }
+}
+/// consume 1 alphabetical character and return (it, consumed input)
+/// if input does not begin with that, raise UnexpectedChar
+fn alpha_1(input: &str) -> Result<(char, &str), ParseError> {
+  let mut chars = input.chars();
+  let Some(c) = chars.next() else {
+    return Err(ParseError::UnexpectedChar);
+  };
+  match c {
+    'A'..='Z' | 'a'..='z' => Ok((c, chars.as_str())),
+    _ => Err(ParseError::UnexpectedChar),
+  }
+}
+
 /// If input begins with test, return consumed input
 fn expect_str<'s>(input: &'s str, test: &'s str) -> Result<&'s str, ParseError> {
   assert_ne!(test.len(), 0);
@@ -95,6 +120,45 @@ mod test {
   fn space1_fails_when_input_begins_with_alphabet() {
     let input = "main";
     assert!(space_1(input).is_err());
+  }
+  #[test]
+  fn alpha_1_returns_test_and_consumed_input_when_input_begins_with_alphabet() {
+    let input = "abc";
+    let res = alpha_1(input);
+    assert!(res.is_ok());
+    let res = res.unwrap();
+    assert_eq!(res.0, 'a');
+    assert_eq!(res.1, "bc");
+  }
+  #[test]
+  fn alpha_1_fails_when_input_begins_with_number() {
+    let input = "012";
+    let res = alpha_1(input);
+    assert!(res.is_err());
+  }
+  #[test]
+  fn alpha_num_1_returns_test_and_consumed_input_when_input_begins_with_alphabet() {
+    let input = "abc";
+    let res = alpha_num_1(input);
+    assert!(res.is_ok());
+    let res = res.unwrap();
+    assert_eq!(res.0, 'a');
+    assert_eq!(res.1, "bc");
+  }
+  #[test]
+  fn alpha_num_1_returns_test_and_consumed_input_when_input_begins_with_number() {
+    let input = "01a";
+    let res = alpha_num_1(input);
+    assert!(res.is_ok());
+    let res = res.unwrap();
+    assert_eq!(res.0, '0');
+    assert_eq!(res.1, "1a");
+  }
+  #[test]
+  fn alpha_num_1_fails_when_input_begins_with_symbol() {
+    let input = "+";
+    let res = alpha_num_1(input);
+    assert!(res.is_err());
   }
   #[test]
   fn expect_str_returns_same_input_when_input_is_same() {

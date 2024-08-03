@@ -1,6 +1,11 @@
 fn main() {
 }
 
+#[derive(Debug)]
+enum ParseError {
+  UnexpectedStr,
+}
+
 /// expect 0 or more (space | linebreak)s
 fn space_0(mut input: &str) -> &str {
   loop {
@@ -13,16 +18,15 @@ fn space_0(mut input: &str) -> &str {
   input
 }
 
-/// If input begins with test, consume it and return (true, <consumed input>)
-/// otherwise return (false, <non-consumed input>)
-fn expect_str<'s>(input: &'s str, test: &'s str) -> (bool, &'s str) {
+/// If input begins with test, return consumed input
+fn expect_str<'s>(input: &'s str, test: &'s str) -> Result<&'s str, ParseError> {
   assert_ne!(test.len(), 0);
   let mut input_chars = input.chars();
   let mut test_chars = test.chars();
   loop {
     // End of test; means every char is matched
     let Some(test_next) = test_chars.next() else {
-      return (true, input_chars.as_str());
+      return Ok(input_chars.as_str());
     };
     // end of input
     let Some(input_next) = input_chars.next() else {
@@ -32,7 +36,7 @@ fn expect_str<'s>(input: &'s str, test: &'s str) -> (bool, &'s str) {
       break;
     }
   }
-  return (false, input);
+  return Err(ParseError::UnexpectedStr);
 }
 
 #[cfg(test)]
@@ -55,27 +59,26 @@ mod test {
     );
   }
   #[test]
-  fn expect_str_is_true_when_same_input() {
+  #[test]
+  fn expect_str_returns_same_input_when_input_is_same() {
     let input = "fn";
     let test = "fn";
-    let (is_matched, returned_input) = expect_str(input, test);
-    assert!(is_matched);
-    assert_eq!(returned_input, "");
+    let res = expect_str(input, test);
+    assert!(res.is_ok());
+    assert_eq!(res.unwrap(), "");
   }
   #[test]
-  fn expect_str_is_false_if_different_input() {
+  fn expect_str_fails_when_input_is_different() {
     let input = "test";
     let test = "fn";
-    let (is_matched, returned_input) = expect_str(input, test);
-    assert!(!is_matched);
-    assert_eq!(returned_input, input);
+    let res = expect_str(input, test);
+    assert!(res.is_err());
   }
   #[test]
-  fn expect_str_is_false_when_same_input_with_pre_spaces() {
+  fn expect_str_fails_when_same_input_with_pre_spaces() {
     let input = "     fn";
     let test = "fn";
-    let (is_matched, returned_input) = expect_str(input, test);
-    assert!(!is_matched);
-    assert_eq!(returned_input, input);
+    let res = expect_str(input, test);
+    assert!(res.is_err());
   }
 }

@@ -55,6 +55,16 @@ fn expect_str<'s>(input: &'s str, test: &'s str) -> Result<&'s str, ParseError> 
   return Err(ParseError::UnexpectedStr);
 }
 
+/// If input begins with c, return consumed input
+fn expect_char(input: &str, c: char) -> Result<&str, ParseError> {
+  let mut chars = input.chars();
+  if chars.next() == Some(c) {
+    Ok(chars.as_str())
+  } else {
+    Err(ParseError::UnexpectedChar)
+  }
+}
+
 #[cfg(test)]
 mod test {
   use super::*;
@@ -106,6 +116,21 @@ mod test {
     let input = "     fn";
     let test = "fn";
     let res = expect_str(input, test);
+    assert!(res.is_err());
+  }
+  #[test]
+  fn expect_char_returns_consumed_input_when_input_begins_with_same_with_test() {
+    let input = "ABCDE";
+    let test = 'A';
+    let res = expect_char(input, test);
+    assert!(res.is_ok());
+    assert_eq!(res.unwrap(), "BCDE");
+  }
+  #[test]
+  fn expect_char_fails_when_input_with_different_char_with_test() {
+    let input = "ABCDE";
+    let test = 'X';
+    let res = expect_char(input, test);
     assert!(res.is_err());
   }
 }

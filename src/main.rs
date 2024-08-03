@@ -1,9 +1,16 @@
 fn main() {
+  let input = "fn main() { return 0 }";
+  println!("parse result: {:#?}", parse(input));
+}
+
+fn parse(input: &str) -> Result<(), ParseError> {
+  unimplemented!()
 }
 
 #[derive(Debug)]
 enum ParseError {
   UnexpectedStr,
+  UnexpectedChar,
 }
 
 /// expect 0 or more (space | linebreak)s
@@ -16,6 +23,15 @@ fn space_0(mut input: &str) -> &str {
     input = chars.as_str();
   }
   input
+}
+/// expect 1 or more (space | linebreak)s
+/// if input does not begin with whitespace, raise UnexpectedChar
+fn space_1(input: &str) -> Result<&str, ParseError> {
+  let mut chars = input.chars();
+  if !chars.next().unwrap_or('0').is_whitespace() {
+    return Err(ParseError::UnexpectedChar);
+  }
+  Ok(space_0(chars.as_str()))
 }
 
 /// If input begins with test, return consumed input
@@ -59,6 +75,17 @@ mod test {
     );
   }
   #[test]
+  fn space1_remove_whitespaces_when_input_begins_with_alphabet() {
+    let input = "     main";
+    let res = space_1(input);
+    assert!(res.is_ok());
+    assert_eq!(res.unwrap(), "main");
+  }
+  #[test]
+  fn space1_fails_when_input_begins_with_alphabet() {
+    let input = "main";
+    assert!(space_1(input).is_err());
+  }
   #[test]
   fn expect_str_returns_same_input_when_input_is_same() {
     let input = "fn";

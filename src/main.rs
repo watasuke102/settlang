@@ -7,10 +7,31 @@ fn parse(input: &str) -> Result<(), ParseError> {
   unimplemented!()
 }
 
+#[derive(Debug, PartialEq)]
+enum Token {
+  Identifier(String),
+}
+
 #[derive(Debug)]
 enum ParseError {
   UnexpectedStr,
   UnexpectedChar,
+}
+
+/// consume Identifier and return (it, consumed input)
+fn expect_identifier(mut input: &str) -> Result<(Token, &str), ParseError> {
+  let mut identity = String::new();
+  let result = alpha_1(input)?;
+  identity.push(result.0);
+  input = result.1;
+  loop {
+    let Ok(result) = alpha_num_1(input) else {
+      break;
+    };
+    input = result.1;
+    identity.push(result.0);
+  }
+  Ok((Token::Identifier(identity), input))
 }
 
 /// expect 0 or more (space | linebreak)s
@@ -195,6 +216,22 @@ mod test {
     let input = "ABCDE";
     let test = 'X';
     let res = expect_char(input, test);
+    assert!(res.is_err());
+  }
+
+  #[test]
+  fn expect_identifier_returns_str_before_whitespace_and_consumed_input() {
+    let input = "name01  name02";
+    let res = expect_identifier(input);
+    assert!(res.is_ok());
+    let res = res.unwrap();
+    assert_eq!(res.0, Token::Identifier("name01".to_string()));
+    assert_eq!(res.1, "  name02");
+  }
+  #[test]
+  fn expect_identifier_fails_when_input_begins_with_number() {
+    let input = "0name";
+    let res = expect_identifier(input);
     assert!(res.is_err());
   }
 }

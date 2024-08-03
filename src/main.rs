@@ -1,14 +1,14 @@
 fn main() {
 }
 
-fn whitespace(mut input: &str) -> &str {
+/// expect 0 or more (space | linebreak)s
+fn space_0(mut input: &str) -> &str {
   loop {
     let mut chars = input.chars();
-    if chars.next() == Some(' ') {
-      input = chars.as_str();
-    } else {
+    if !chars.next().unwrap_or('0').is_whitespace() {
       break;
     }
+    input = chars.as_str();
   }
   input
 }
@@ -41,7 +41,18 @@ mod test {
 
   #[test]
   fn test_whitespace() {
-    assert_eq!(whitespace("    "), "");
+    assert_eq!(space_0("    "), "");
+    assert_eq!(space_0("    fn  "), "fn  ");
+  }
+  #[test]
+  fn test_linebreak() {
+    assert_eq!(
+      space_0(
+        r"  
+  "
+      ),
+      ""
+    );
   }
   #[test]
   fn expect_str_is_true_when_same_input() {

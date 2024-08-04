@@ -21,6 +21,27 @@ pub fn space_1(input: &str) -> Result<&str, error::ParseError> {
   Ok(space_0(chars.as_str()))
 }
 
+/// if input begins with number, consume and return (Some(it), consumed input)
+/// otherwise return (None, input)
+pub fn num_0(input: &str) -> (Option<i32>, &str) {
+  let mut chars = input.chars();
+  let c = chars.next().unwrap_or('a');
+  match c {
+    '0'..='9' => (Some(c.to_digit(10).unwrap() as i32), chars.as_str()),
+    _ => (None, input),
+  }
+}
+/// consume 1 numeric character and return (it, consumed input)
+/// if input does not begin with that, raise UnexpectedChar
+pub fn num_1(input: &str) -> Result<(i32, &str), error::ParseError> {
+  let mut chars = input.chars();
+  let c = chars.next().unwrap_or('a');
+  match c {
+    '0'..='9' => Ok((c.to_digit(10).unwrap() as i32, chars.as_str())),
+    _ => Err(error::ParseError::UnexpectedChar),
+  }
+}
+
 /// consume 1 alphabetical or numeric character and return (it, consumed input)
 /// if input does not begin with that, raise UnexpectedChar
 pub fn alpha_num_1(input: &str) -> Result<(char, &str), error::ParseError> {
@@ -107,6 +128,26 @@ mod test {
   fn space1_fails_when_input_begins_with_alphabet() {
     let input = "main";
     assert!(space_1(input).is_err());
+  }
+  #[test]
+  fn test_num_0() {
+    assert_eq!(num_0("0123"), (Some(0), "123"));
+    assert_eq!(num_0("a0b1"), (None, "a0b1"));
+  }
+  #[test]
+  fn num_1_returns_num_and_consumed_input_when_input_begins_with_num() {
+    let input = "0123";
+    let res = num_1(input);
+    assert!(res.is_ok());
+    let res = res.unwrap();
+    assert_eq!(res.0, 0);
+    assert_eq!(res.1, "123");
+  }
+  #[test]
+  fn num_1_fails_when_input_begins_with_alphabet() {
+    let input = "a0b1";
+    let res = num_1(input);
+    assert!(res.is_err());
   }
   #[test]
   fn alpha_1_returns_test_and_consumed_input_when_input_begins_with_alphabet() {

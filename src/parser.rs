@@ -3,7 +3,7 @@ use crate::error;
 pub type ParseResult<'s, T> = Result<(T, /*input:*/ &'s str), error::ParseError>;
 
 /// expect 0 or more (space | linebreak)s
-pub fn space_0(mut input: &str) -> &str {
+pub fn mulspace_0(mut input: &str) -> &str {
   loop {
     let mut chars = input.chars();
     if !chars.next().unwrap_or('0').is_whitespace() {
@@ -15,12 +15,12 @@ pub fn space_0(mut input: &str) -> &str {
 }
 /// expect 1 or more (space | linebreak)s
 /// if input does not begin with whitespace, raise UnexpectedChar
-pub fn space_1(input: &str) -> Result<&str, error::ParseError> {
+pub fn mulspace_1(input: &str) -> Result<&str, error::ParseError> {
   let mut chars = input.chars();
   if !chars.next().unwrap_or('0').is_whitespace() {
     return Err(error::ParseError::UnexpectedChar);
   }
-  Ok(space_0(chars.as_str()))
+  Ok(mulspace_0(chars.as_str()))
 }
 
 /// if input begins with number, consume and return (Some(it), consumed input)
@@ -106,13 +106,13 @@ mod test {
 
   #[test]
   fn test_whitespace() {
-    assert_eq!(space_0("    "), "");
-    assert_eq!(space_0("    fn  "), "fn  ");
+    assert_eq!(mulspace_0("    "), "");
+    assert_eq!(mulspace_0("    fn  "), "fn  ");
   }
   #[test]
   fn test_linebreak() {
     assert_eq!(
-      space_0(
+      mulspace_0(
         r"  
   "
       ),
@@ -122,14 +122,14 @@ mod test {
   #[test]
   fn space1_remove_whitespaces_when_input_begins_with_alphabet() {
     let input = "     main";
-    let res = space_1(input);
+    let res = mulspace_1(input);
     assert!(res.is_ok());
     assert_eq!(res.unwrap(), "main");
   }
   #[test]
   fn space1_fails_when_input_begins_with_alphabet() {
     let input = "main";
-    assert!(space_1(input).is_err());
+    assert!(mulspace_1(input).is_err());
   }
   #[test]
   fn test_num_0() {

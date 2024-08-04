@@ -18,27 +18,27 @@ pub fn tokenize(input: &str) -> Result<(Function, &str), error::ParseError> {
 }
 
 fn expect_fn_declare(mut input: &str) -> Result<(Function, &str), error::ParseError> {
-  input = expect_str(space_0(input), "fn")?.1;
-  let res = expect_identifier(space_1(input)?)?;
+  input = expect_str(mulspace_0(input), "fn")?.1;
+  let res = expect_identifier(mulspace_1(input)?)?;
   let Token::Identifier(_) = res.0 else {
     return Err(error::ParseError::UnexpectedToken);
   };
   let ident = res.0;
   input = res.1;
-  input = expect_char(space_0(input), '(')?.1;
+  input = expect_char(mulspace_0(input), '(')?.1;
   // TODO: arguments
-  input = expect_char(space_0(input), ')')?.1;
-  input = expect_char(space_0(input), '{')?.1;
-  input = expect_str(space_0(input), "return")?.1;
+  input = expect_char(mulspace_0(input), ')')?.1;
+  input = expect_char(mulspace_0(input), '{')?.1;
+  input = expect_str(mulspace_0(input), "return")?.1;
 
-  let res = expect_expression(space_1(input)?)?;
+  let res = expect_expression(mulspace_1(input)?)?;
   let Token::Expression(_) = res.0 else {
     return Err(error::ParseError::UnexpectedToken);
   };
   let retval = res.0;
   input = res.1;
 
-  input = expect_char(space_0(input), '}')?.1;
+  input = expect_char(mulspace_0(input), '}')?.1;
   Ok((
     Function {
       name: ident,

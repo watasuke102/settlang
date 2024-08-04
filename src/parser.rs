@@ -1,5 +1,7 @@
 use crate::error;
 
+pub type ParseResult<'s, T> = Result<(T, /*input:*/ &'s str), error::ParseError>;
+
 /// expect 0 or more (space | linebreak)s
 pub fn space_0(mut input: &str) -> &str {
   loop {
@@ -44,7 +46,7 @@ pub fn num_1(input: &str) -> Result<(i32, &str), error::ParseError> {
 
 /// consume 1 alphabetical or numeric character and return (it, consumed input)
 /// if input does not begin with that, raise UnexpectedChar
-pub fn alpha_num_1(input: &str) -> Result<(char, &str), error::ParseError> {
+pub fn alpha_num_1(input: &str) -> ParseResult<char> {
   let mut chars = input.chars();
   let Some(c) = chars.next() else {
     return Err(error::ParseError::UnexpectedChar);
@@ -56,7 +58,7 @@ pub fn alpha_num_1(input: &str) -> Result<(char, &str), error::ParseError> {
 }
 /// consume 1 alphabetical character and return (it, consumed input)
 /// if input does not begin with that, raise UnexpectedChar
-pub fn alpha_1(input: &str) -> Result<(char, &str), error::ParseError> {
+pub fn alpha_1(input: &str) -> ParseResult<char> {
   let mut chars = input.chars();
   let Some(c) = chars.next() else {
     return Err(error::ParseError::UnexpectedChar);
@@ -68,14 +70,14 @@ pub fn alpha_1(input: &str) -> Result<(char, &str), error::ParseError> {
 }
 
 /// If input begins with test, return consumed input
-pub fn expect_str<'s>(input: &'s str, test: &'s str) -> Result<&'s str, error::ParseError> {
+pub fn expect_str<'s>(input: &'s str, test: &'s str) -> ParseResult<'s, ()> {
   assert_ne!(test.len(), 0);
   let mut input_chars = input.chars();
   let mut test_chars = test.chars();
   loop {
     // End of test; means every char is matched
     let Some(test_next) = test_chars.next() else {
-      return Ok(input_chars.as_str());
+      return Ok(((), input_chars.as_str()));
     };
     // end of input
     let Some(input_next) = input_chars.next() else {
@@ -89,10 +91,10 @@ pub fn expect_str<'s>(input: &'s str, test: &'s str) -> Result<&'s str, error::P
 }
 
 /// If input begins with c, return consumed input
-pub fn expect_char(input: &str, c: char) -> Result<&str, error::ParseError> {
+pub fn expect_char(input: &str, c: char) -> ParseResult<()> {
   let mut chars = input.chars();
   if chars.next() == Some(c) {
-    Ok(chars.as_str())
+    Ok(((), chars.as_str()))
   } else {
     Err(error::ParseError::UnexpectedChar)
   }
@@ -194,7 +196,7 @@ mod test {
     let test = "fn";
     let res = expect_str(input, test);
     assert!(res.is_ok());
-    assert_eq!(res.unwrap(), "");
+    assert_eq!(res.unwrap().1, "");
   }
   #[test]
   fn expect_str_fails_when_input_is_different() {
@@ -216,7 +218,7 @@ mod test {
     let test = 'A';
     let res = expect_char(input, test);
     assert!(res.is_ok());
-    assert_eq!(res.unwrap(), "BCDE");
+    assert_eq!(res.unwrap().1, "BCDE");
   }
   #[test]
   fn expect_char_fails_when_input_with_different_char_with_test() {

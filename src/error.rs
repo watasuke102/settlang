@@ -2,5 +2,4 @@
 pub enum ParseError {
   UnexpectedStr,
   UnexpectedChar,
-  UnexpectedToken,
 }

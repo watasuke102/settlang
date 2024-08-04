@@ -5,8 +5,32 @@ pub enum Expression {
   Constant(i32),
 }
 
-pub fn tokenize(input: &str) -> Result<(Function, &str), error::ParseError> {
-  expect_fn_declare(input)
+#[derive(Debug)]
+pub enum Statement {
+  DeclStatement(Declaration),
+}
+
+#[derive(Debug)]
+pub enum Declaration {
+  FnDecl(Function),
+}
+
+pub fn expect_code(mut input: &str) -> ParseResult<Vec<Statement>> {
+  let mut statements = Vec::new();
+  while let Ok(res) = expect_statement(input) {
+    statements.push(res.0);
+    input = res.1;
+  }
+  Ok((statements, input))
+}
+
+fn expect_statement(input: &str) -> ParseResult<Statement> {
+  let res = expect_declaration(input)?;
+  Ok((Statement::DeclStatement(res.0), res.1))
+}
+fn expect_declaration(input: &str) -> ParseResult<Declaration> {
+  let res = expect_fn_declaration(input)?;
+  Ok((Declaration::FnDecl(res.0), res.1))
 }
 
 #[derive(Debug)]
@@ -15,7 +39,7 @@ pub struct Function {
   // TODO: arguments
   retval: Expression, // Expression
 }
-fn expect_fn_declare(mut input: &str) -> Result<(Function, &str), error::ParseError> {
+fn expect_fn_declaration(mut input: &str) -> Result<(Function, &str), error::ParseError> {
   input = expect_str(mulspace_0(input), "fn")?.1;
   let name;
   (name, input) = expect_identifier(mulspace_1(input)?)?;
@@ -77,7 +101,7 @@ mod test {
       ("fn main() { return }", false, " ", 0),
       ("fn main) { return }", false, "  ", 0),
     ] {
-      let Ok(res) = expect_fn_declare(input) else {
+      let Ok(res) = expect_fn_declaration(input) else {
         if is_expected_success {
           panic!("input `{}` is expected to succeed but it fails", input);
         } else {

@@ -53,9 +53,9 @@ fn expect_return(input: &str) -> ParseResult<Expression> {
 
 #[derive(Debug)]
 pub struct Function {
-  name: String,
+  pub name: String,
   // TODO: arguments
-  code: Vec<Statement>,
+  pub code: Vec<Statement>,
 }
 fn expect_fn_declaration(mut input: &str) -> Result<(Function, &str), error::ParseError> {
   input = expect_str(mulspace_0(input), "fn")?.1;

@@ -1,62 +1,46 @@
 use crate::{error, parser::*};
 
 #[derive(Debug, PartialEq)]
-pub enum Token {
-  Identifier(String),
-  Expression(i32), // TODO: it should be token tree
-}
-
-#[derive(Debug)]
-pub struct Function {
-  name:   Token, // Identifier
-  // TODO: arguments
-  retval: Token, // Expression
+pub enum Expression {
+  Constant(i32),
 }
 
 pub fn tokenize(input: &str) -> Result<(Function, &str), error::ParseError> {
   expect_fn_declare(input)
 }
 
+#[derive(Debug)]
+pub struct Function {
+  name:   String,
+  // TODO: arguments
+  retval: Expression, // Expression
+}
 fn expect_fn_declare(mut input: &str) -> Result<(Function, &str), error::ParseError> {
   input = expect_str(mulspace_0(input), "fn")?.1;
-  let res = expect_identifier(mulspace_1(input)?)?;
-  let Token::Identifier(_) = res.0 else {
-    return Err(error::ParseError::UnexpectedToken);
-  };
-  let ident = res.0;
-  input = res.1;
+  let name;
+  (name, input) = expect_identifier(mulspace_1(input)?)?;
   input = expect_char(mulspace_0(input), '(')?.1;
   // TODO: arguments
   input = expect_char(mulspace_0(input), ')')?.1;
   input = expect_char(mulspace_0(input), '{')?.1;
   input = expect_str(mulspace_0(input), "return")?.1;
 
-  let res = expect_expression(mulspace_1(input)?)?;
-  let Token::Expression(_) = res.0 else {
-    return Err(error::ParseError::UnexpectedToken);
-  };
-  let retval = res.0;
-  input = res.1;
+  let retval;
+  (retval, input) = expect_expression(mulspace_1(input)?)?;
 
   input = expect_char(mulspace_0(input), '}')?.1;
-  Ok((
-    Function {
-      name: ident,
-      retval,
-    },
-    input,
-  ))
+  Ok((Function { name, retval }, input))
 }
 
 /// TODO: this accepts only number
-fn expect_expression(mut input: &str) -> Result<(Token, &str), error::ParseError> {
+fn expect_expression(mut input: &str) -> Result<(Expression, &str), error::ParseError> {
   let res = num_1(input)?;
   let mut constant = res.0;
   input = res.1;
   loop {
     let res = num_0(input);
     if res.0.is_none() {
-      return Ok((Token::Expression(constant), input));
+      return Ok((Expression::Constant(constant), input));
     }
     constant = constant * 10 + res.0.unwrap();
     input = res.1;
@@ -64,7 +48,7 @@ fn expect_expression(mut input: &str) -> Result<(Token, &str), error::ParseError
 }
 
 /// consume Identifier and return (it, consumed input)
-fn expect_identifier(mut input: &str) -> Result<(Token, &str), error::ParseError> {
+fn expect_identifier(mut input: &str) -> Result<(String, &str), error::ParseError> {
   let mut identity = String::new();
   let result = alpha_1(input)?;
   identity.push(result.0);
@@ -76,7 +60,7 @@ fn expect_identifier(mut input: &str) -> Result<(Token, &str), error::ParseError
     input = result.1;
     identity.push(result.0);
   }
-  Ok((Token::Identifier(identity), input))
+  Ok((identity, input))
 }
 
 #[cfg(test)]
@@ -100,25 +84,19 @@ mod test {
           continue;
         }
       };
-      let Token::Identifier(parsed_fname) = res.0.name else {
-        panic!("UnexpectedToken ({:?})", res.0.name);
-      };
-      let Token::Expression(parsed_retval) = res.0.retval else {
-        panic!("UnexpectedToken ({:?})", res.0.retval);
-      };
-      assert_eq!(parsed_fname, fname.to_string());
-      assert_eq!(parsed_retval, retval);
+      assert_eq!(res.0.name, fname.to_string());
+      assert_eq!(res.0.retval, Expression::Constant(retval));
     }
   }
   #[test]
-  fn expect_expression_returns_expression_if_input_begins_with_number() {
+  fn expect_expression_returns_constant_if_input_begins_with_number() {
     let input = "123 abc";
     let res = expect_expression(input);
     assert!(res.is_ok());
     let res = res.unwrap();
-    let Token::Expression(constant) = res.0 else {
+    let Expression::Constant(constant) = res.0 else {
       panic!(
-        "expect_expression({}) succeeded but does not return Token::Expression (returned: {:?})",
+        "expect_expression({}) succeeded but does not return Expression::Constant (returned: {:?})",
         input, res.0
       );
     };
@@ -137,7 +115,7 @@ mod test {
     let res = expect_identifier(input);
     assert!(res.is_ok());
     let res = res.unwrap();
-    assert_eq!(res.0, Token::Identifier("name01".to_string()));
+    assert_eq!(res.0, "name01".to_string());
     assert_eq!(res.1, "  name02");
   }
   #[test]

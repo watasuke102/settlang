@@ -1,10 +1,5 @@
 use crate::{error, parser::*};
 
-#[derive(Debug, PartialEq)]
-pub enum Expression {
-  Constant(i32),
-}
-
 #[derive(Debug)]
 pub enum Statement {
   DeclStatement(Declaration),
@@ -73,8 +68,67 @@ fn expect_fn_declaration(mut input: &str) -> Result<(Function, &str), error::Par
   Ok((Function { name, code }, input))
 }
 
-/// TODO: this accepts only number
-fn expect_expression(mut input: &str) -> Result<(Expression, &str), error::ParseError> {
+#[derive(Debug, PartialEq)]
+pub enum Expression {
+  Constant(i32),
+  Add(Box<Expression>, Box<Expression>),
+  Sub(Box<Expression>, Box<Expression>),
+  Mul(Box<Expression>, Box<Expression>),
+  Div(Box<Expression>, Box<Expression>),
+}
+// <expr> = <expr-secondary> ('+' <expr-secondary> | '-' <expr-secondary>)*
+fn expect_expression(mut input: &str) -> ParseResult<Expression> {
+  let mut expr;
+  (expr, input) = expect_expr_secondary(mulspace_0(input))?;
+  loop {
+    if let Ok(res) = expect_char(mulspace_0(input), '+') {
+      input = res.1;
+      let second_expr;
+      (second_expr, input) = expect_expr_secondary(mulspace_0(input))?;
+      expr = Expression::Add(Box::new(expr), Box::new(second_expr));
+    } else if let Ok(res) = expect_char(mulspace_0(input), '-') {
+      input = res.1;
+      let second_expr;
+      (second_expr, input) = expect_expr_secondary(mulspace_0(input))?;
+      expr = Expression::Sub(Box::new(expr), Box::new(second_expr));
+    } else {
+      break;
+    }
+  }
+  Ok((expr, input))
+}
+// <expr-secondary> = <expr-primary> ('*' <expr-primary> | '/' <expr-primary>)*
+fn expect_expr_secondary(mut input: &str) -> ParseResult<Expression> {
+  let mut expr;
+  (expr, input) = expect_expr_primary(mulspace_0(input))?;
+  loop {
+    if let Ok(res) = expect_char(mulspace_0(input), '*') {
+      input = res.1;
+      let second_expr;
+      (second_expr, input) = expect_expr_primary(mulspace_0(input))?;
+      expr = Expression::Mul(Box::new(expr), Box::new(second_expr));
+    } else if let Ok(res) = expect_char(mulspace_0(input), '/') {
+      input = res.1;
+      let second_expr;
+      (second_expr, input) = expect_expr_primary(mulspace_0(input))?;
+      expr = Expression::Div(Box::new(expr), Box::new(second_expr));
+    } else {
+      break;
+    }
+  }
+  Ok((expr, input))
+}
+// TODO: use function call and variable instead of <constant>
+// <expr-primary> = <constant> | '(' <expr> ')'
+fn expect_expr_primary(mut input: &str) -> ParseResult<Expression> {
+  if let Ok((_, input)) = expect_char(mulspace_0(input), '(') {
+    let Ok((expr, input)) = expect_expression(mulspace_0(input)) else {
+      return Err(error::ParseError::ExpectedExpression);
+    };
+    let (_, input) = expect_char(mulspace_0(input), ')')?;
+    return Ok((expr, input));
+  }
+
   let res = num_1(input)?;
   let mut constant = res.0;
   input = res.1;
@@ -161,7 +215,7 @@ mod test {
     }
   }
   #[test]
-  fn expect_expression_returns_constant_if_input_begins_with_number() {
+  fn expect_expression_returns_constant_if_input_is_number() {
     let input = "123 abc";
     let res = expect_expression(input);
     assert!(res.is_ok());
@@ -176,10 +230,44 @@ mod test {
     assert_eq!(res.1, " abc");
   }
   #[test]
-  fn expect_expression_fails_if_input_begins_with_alphabet() {
-    let input = "abc 123";
+  fn expect_expression_returns_add() {
+    let input = "1 + 2";
     let res = expect_expression(input);
-    assert!(res.is_err());
+    assert!(res.is_ok());
+    let res = res.unwrap();
+    let Expression::Add(lhs, rhs) = res.0 else {
+      panic!(
+        "expect_expression({}) succeeded but does not return Expression::Add (returned: {:?})",
+        input, res.0
+      );
+    };
+    assert_eq!(res.1, "");
+    assert_eq!(*lhs, Expression::Constant(1));
+    assert_eq!(*rhs, Expression::Constant(2));
+  }
+  #[test]
+  fn expect_expression_returns_sub_contains_add() {
+    // It means (1+2) - 3, so expect Sub(Add(1,2), 3)
+    let input = "1+2 - 3";
+    let res = expect_expression(input);
+    assert!(res.is_ok());
+    let res = res.unwrap();
+    let Expression::Add(lhs, rhs) = res.0 else {
+      panic!(
+        "expect_expression({}) succeeded but does not return Expression::Add (returned: {:?})",
+        input, res.0
+      );
+    };
+    let Expression::Sub(rhs_first, rhs_second) = *rhs else {
+      panic!(
+        "Right-hand side of Expression::Add is not Expression::Sub(returned: {:?})",
+        rhs
+      );
+    };
+    assert_eq!(res.1, "");
+    assert_eq!(*lhs, Expression::Constant(1));
+    assert_eq!(*rhs_first, Expression::Constant(2));
+    assert_eq!(*rhs_second, Expression::Constant(3));
   }
   #[test]
   fn expect_identifier_returns_str_before_whitespace_and_consumed_input() {

@@ -258,6 +258,12 @@ mod test {
         -2",
         4,
       ), // multiline expression (maybe same behavior with JS?)
+      (
+        "3 #* comment *# +7
+        # comment
+        -5",
+        5,
+      ), // comment is equivalent to space
     ] {
       let Ok((expr, _)) = expect_expression(input) else {
         panic!("input `{}` is not parsed as expression", input);

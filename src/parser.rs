@@ -3,18 +3,48 @@ use crate::error::ParseError;
 // pub type Expection<'s> = ;
 type Expecter = Box<dyn Fn(&str) -> Result</*input:*/ &str, ParseError>>;
 
-/// expect char which has White_Space property in Unicode
+/// expect {char which has White_Space property in Unicode, comment}
 pub fn space() -> Expecter {
+  fn skip_comment(input: &str) -> Result<&str, ParseError> {
+    let mut chars = input.chars();
+    // block comment
+    let mut is_block = false;
+    if chars.next().ok_or(ParseError::EmptyInput)? == '*' {
+      is_block = true
+    }
+    loop {
+      match chars.next() {
+        None => return Err(ParseError::EmptyInput),
+        Some('\n') => {
+          if !is_block {
+            return Ok(chars.as_str());
+          }
+        }
+        Some('*') => {
+          if is_block {
+            if chars.next().ok_or(ParseError::EmptyInput)? == '#' {
+              return Ok(chars.as_str());
+            }
+          }
+        }
+        _ => (),
+      }
+    }
+  }
+
   Box::new(|input| {
     let mut chars = input.chars();
     let c = chars.next().ok_or(ParseError::EmptyInput)?;
-    if c.is_whitespace() {
+    if c == '#' {
+      return skip_comment(chars.as_str());
+    } else if c.is_whitespace() {
       Ok(chars.as_str())
     } else {
       Err(ParseError::NoMatch)
     }
   })
 }
+
 pub fn num() -> Expecter {
   Box::new(|input| {
     let mut chars = input.chars();
@@ -140,6 +170,17 @@ mod test {
 hello",
         Ok("hello"),
       ),
+      (
+        r"# one-line comment
+end",
+        Ok("end"),
+      ),
+      (
+        r"#* this is 
+         block comment
+         *#end",
+        Ok("end"),
+      ),
       ("abc", Err(ParseError::NoMatch)),
     ]
     .map(tester(space()));
@@ -191,7 +232,7 @@ hello",
   fn test_optional() {
     let input = "1234";
     // Ensure the premise that `alpha("1234")` should return ParseError::NoMatch
-    #[rustfmt::skip] 
+    #[rustfmt::skip]
     assert_eq!(        (alpha())(input), Err(ParseError::NoMatch));
     assert_eq!(optional(alpha())(input), Ok(input));
   }

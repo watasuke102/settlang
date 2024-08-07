@@ -34,6 +34,7 @@ fn main() {
 fn main() {
   return 0 
 }
+fn blank(){}
 fn test() {
   -1
   2
@@ -41,9 +42,14 @@ fn test() {
   10+1 * 6/3
   return 128
 }
+#*
+fn inside_comment() {
+}
+*#
 fn expr() {
   return 10+20 - 1+3*6/(1+1) - 2
 }
+
 ";
   println!("=== parse result ===");
   tokenizer::expect_code(input)

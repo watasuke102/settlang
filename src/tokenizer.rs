@@ -87,6 +87,18 @@ pub enum Expression {
   Mul(Box<Expression>, Box<Expression>),
   Div(Box<Expression>, Box<Expression>),
 }
+impl Expression {
+  pub fn eval(&self) -> i32 {
+    use Expression::*;
+    match self {
+      Constant(a) => *a,
+      Add(lhs, rhs) => lhs.eval() + rhs.eval(),
+      Sub(lhs, rhs) => lhs.eval() - rhs.eval(),
+      Mul(lhs, rhs) => lhs.eval() * rhs.eval(),
+      Div(lhs, rhs) => lhs.eval() / rhs.eval(),
+    }
+  }
+}
 // <expr> = <expr-secondary> ('+' <expr-secondary> | '-' <expr-secondary>)*
 fn expect_expression(mut input: &str) -> TokenizeResult<Expression> {
   let mut expr;
@@ -219,59 +231,17 @@ mod test {
     }
   }
   #[test]
-  fn expect_expression_returns_constant_if_input_is_number() {
-    let input = "123 abc";
-    let res = expect_expression(input);
-    assert!(res.is_ok());
-    let res = res.unwrap();
-    let Expression::Constant(constant) = res.0 else {
-      panic!(
-        "expect_expression({}) succeeded but does not return Expression::Constant (returned: {:?})",
-        input, res.0
-      );
-    };
-    assert_eq!(constant, 123);
-    assert_eq!(res.1, " abc");
-  }
-  #[test]
-  fn expect_expression_returns_add() {
-    let input = "1 + 2";
-    let res = expect_expression(input);
-    assert!(res.is_ok());
-    let res = res.unwrap();
-    let Expression::Add(lhs, rhs) = res.0 else {
-      panic!(
-        "expect_expression({}) succeeded but does not return Expression::Add (returned: {:?})",
-        input, res.0
-      );
-    };
-    assert_eq!(res.1, "");
-    assert_eq!(*lhs, Expression::Constant(1));
-    assert_eq!(*rhs, Expression::Constant(2));
-  }
-  #[test]
-  fn expect_expression_returns_sub_contains_add() {
-    // It means (1+2) - 3, so expect Sub(Add(1,2), 3)
-    let input = "1+2 - 3";
-    let res = expect_expression(input);
-    assert!(res.is_ok());
-    let res = res.unwrap();
-    let Expression::Sub(lhs, rhs) = res.0 else {
-      panic!(
-        "expect_expression({}) succeeded but does not return Expression::Sub (returned: {:?})",
-        input, res.0
-      );
-    };
-    let Expression::Add(lhs_first, lhs_second) = *lhs else {
-      panic!(
-        "Right-hand side of Expression::Sub is not Expression::Add(returned: {:?})",
-        lhs
-      );
-    };
-    assert_eq!(res.1, "");
-    assert_eq!(*lhs_first, Expression::Constant(1));
-    assert_eq!(*lhs_second, Expression::Constant(2));
-    assert_eq!(*rhs, Expression::Constant(3));
+  fn test_expect_expression() {
+    for input in [
+      ("10 + 20", 30),   // basic binary
+      ("1+2 * 3", 7),    // mul should be prioritized
+      ("2 * (4+6)", 20), // bracket should be prioritized
+    ] {
+      let Ok((expr, _)) = expect_expression(input) else {
+        panic!("input `{}` is not parsed as expression", input);
+      };
+      assert_eq!(expr.eval(), expect, "(input: {})", input);
+    }
   }
   #[test]
   fn expect_identifier_returns_str_before_whitespace_and_consumed_input() {

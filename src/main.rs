@@ -17,7 +17,12 @@ fn print_statement(statement: Statement, indent: usize) {
         println!("{}}}", indent_space);
       }
     },
-    Statement::Return(retval) => println!("{}[return] retval: {:?}", indent_space, retval),
+    Statement::Return(retval) => println!(
+      "{}[return] retval: {:?} (eval: {})",
+      indent_space,
+      retval,
+      retval.eval()
+    ),
   }
 }
 

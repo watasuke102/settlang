@@ -1,230 +1,203 @@
-use crate::error;
+use crate::error::ParseError;
 
-pub type ParseResult<'s, T> = Result<(T, /*input:*/ &'s str), error::ParseError>;
+// pub type Expection<'s> = ;
+type Expecter = Box<dyn Fn(&str) -> Result</*input:*/ &str, ParseError>>;
 
-/// expect 0 or more (space | linebreak)s
-pub fn mulspace_0(mut input: &str) -> &str {
-  loop {
+/// expect char which has White_Space property in Unicode
+pub fn space() -> Expecter {
+  Box::new(|input| {
     let mut chars = input.chars();
-    if !chars.next().unwrap_or('0').is_whitespace() {
-      break;
+    let c = chars.next().ok_or(ParseError::EmptyInput)?;
+    if c.is_whitespace() {
+      Ok(chars.as_str())
+    } else {
+      Err(ParseError::NoMatch)
     }
-    input = chars.as_str();
-  }
-  input
+  })
 }
-/// expect 1 or more (space | linebreak)s
-/// if input does not begin with whitespace, raise UnexpectedChar
-pub fn mulspace_1(input: &str) -> Result<&str, error::ParseError> {
-  let mut chars = input.chars();
-  if !chars.next().unwrap_or('0').is_whitespace() {
-    return Err(error::ParseError::UnexpectedChar);
-  }
-  Ok(mulspace_0(chars.as_str()))
-}
-
-/// if input begins with number, consume and return (Some(it), consumed input)
-/// otherwise return (None, input)
-pub fn num_0(input: &str) -> (Option<i32>, &str) {
-  let mut chars = input.chars();
-  let c = chars.next().unwrap_or('a');
-  match c {
-    '0'..='9' => (Some(c.to_digit(10).unwrap() as i32), chars.as_str()),
-    _ => (None, input),
-  }
-}
-/// consume 1 numeric character and return (it, consumed input)
-/// if input does not begin with that, raise UnexpectedChar
-pub fn num_1(input: &str) -> Result<(i32, &str), error::ParseError> {
-  let mut chars = input.chars();
-  let c = chars.next().unwrap_or('a');
-  match c {
-    '0'..='9' => Ok((c.to_digit(10).unwrap() as i32, chars.as_str())),
-    _ => Err(error::ParseError::UnexpectedChar),
-  }
-}
-
-/// consume 1 alphabetical or numeric character and return (it, consumed input)
-/// if input does not begin with that, raise UnexpectedChar
-pub fn alpha_num_1(input: &str) -> ParseResult<char> {
-  let mut chars = input.chars();
-  let Some(c) = chars.next() else {
-    return Err(error::ParseError::UnexpectedChar);
-  };
-  match c {
-    '0'..='9' | 'A'..='Z' | 'a'..='z' => Ok((c, chars.as_str())),
-    _ => Err(error::ParseError::UnexpectedChar),
-  }
-}
-/// consume 1 alphabetical character and return (it, consumed input)
-/// if input does not begin with that, raise UnexpectedChar
-pub fn alpha_1(input: &str) -> ParseResult<char> {
-  let mut chars = input.chars();
-  let Some(c) = chars.next() else {
-    return Err(error::ParseError::UnexpectedChar);
-  };
-  match c {
-    'A'..='Z' | 'a'..='z' => Ok((c, chars.as_str())),
-    _ => Err(error::ParseError::UnexpectedChar),
-  }
-}
-
-/// If input begins with test, return consumed input
-pub fn expect_str<'s>(input: &'s str, test: &'s str) -> ParseResult<'s, ()> {
-  assert_ne!(test.len(), 0);
-  let mut input_chars = input.chars();
-  let mut test_chars = test.chars();
-  loop {
-    // End of test; means every char is matched
-    let Some(test_next) = test_chars.next() else {
-      return Ok(((), input_chars.as_str()));
-    };
-    // end of input
-    let Some(input_next) = input_chars.next() else {
-      break;
-    };
-    if input_next != test_next {
-      break;
+pub fn num() -> Expecter {
+  Box::new(|input| {
+    let mut chars = input.chars();
+    let c = chars.next().ok_or(ParseError::EmptyInput)?;
+    match c {
+      '0'..='9' => Ok(chars.as_str()),
+      _ => Err(ParseError::NoMatch),
     }
-  }
-  return Err(error::ParseError::UnexpectedStr);
+  })
+}
+pub fn alpha() -> Expecter {
+  Box::new(|input| {
+    let mut chars = input.chars();
+    let c = chars.next().ok_or(ParseError::EmptyInput)?;
+    match c {
+      'A'..='Z' | 'a'..='z' => Ok(chars.as_str()),
+      _ => Err(ParseError::NoMatch),
+    }
+  })
 }
 
-/// If input begins with c, return consumed input
-pub fn expect_char(input: &str, c: char) -> ParseResult<()> {
-  let mut chars = input.chars();
-  if chars.next() == Some(c) {
-    Ok(((), chars.as_str()))
-  } else {
-    Err(error::ParseError::UnexpectedChar)
-  }
+pub fn char(expect: char) -> Expecter {
+  Box::new(move |input| {
+    let mut chars = input.chars();
+    let c = chars.next().ok_or(ParseError::EmptyInput)?;
+    if c == expect {
+      Ok(chars.as_str())
+    } else {
+      Err(ParseError::NoMatch)
+    }
+  })
+}
+pub fn str(expect: String) -> Expecter {
+  Box::new(move |input| {
+    let mut input_chars = input.chars();
+    let mut expect_chars = expect.as_str().chars();
+    loop {
+      let Some(expect_c) = expect_chars.next() else {
+        return Ok(input_chars.as_str());
+      };
+      let input_c = input_chars.next().ok_or(ParseError::EmptyInput)?;
+      if input_c != expect_c {
+        return Err(ParseError::NoMatch);
+      }
+    }
+  })
+}
+
+pub fn mul(expecter: Expecter) -> Expecter {
+  Box::new(move |original_input| {
+    let mut input = original_input;
+    loop {
+      match expecter(input) {
+        Ok(consumed) => input = consumed,
+        Err(_) => {
+          if input == original_input {
+            return Err(ParseError::NoMatch);
+          } else {
+            return Ok(input);
+          }
+        }
+      }
+    }
+  })
+}
+pub fn seq(expecters: Vec<Expecter>) -> Expecter {
+  Box::new(move |mut input| {
+    for expecter in &expecters {
+      match expecter(input) {
+        Ok(consumed) => input = consumed,
+        Err(e) => return Err(e),
+      }
+    }
+    Ok(input)
+  })
+}
+pub fn or(expecters: Vec<Expecter>) -> Expecter {
+  Box::new(move |input| {
+    for expecter in &expecters {
+      match expecter(input) {
+        Ok(input) => return Ok(input),
+        Err(ParseError::NoMatch) => (),
+        Err(e) => return Err(e),
+      }
+    }
+    Err(ParseError::NoMatch)
+  })
+}
+/// ignore ParseError::NoMatch
+pub fn optional(expecter: Expecter) -> Expecter {
+  Box::new(move |input| match expecter(input) {
+    Ok(consumed) => return Ok(consumed),
+    Err(ParseError::NoMatch) => return Ok(input),
+    Err(e) => return Err(e),
+  })
+}
+
+/// return (remaining input, retrieved string)
+pub fn consumed(input: &str, expecter: Expecter) -> Result<(&str, &str), ParseError> {
+  let consumed = expecter(input)?;
+  let offset = (consumed.as_ptr() as usize) - (input.as_ptr() as usize);
+  Ok((&input[..offset], consumed))
 }
 
 #[cfg(test)]
 mod test {
   use super::*;
+  fn tester(f: Expecter) -> impl Fn((&str, Result<&str, ParseError>)) {
+    move |(input, expect)| assert_eq!(f(input), expect)
+  }
 
   #[test]
-  fn test_whitespace() {
-    assert_eq!(mulspace_0("    "), "");
-    assert_eq!(mulspace_0("    fn  "), "fn  ");
-  }
-  #[test]
-  fn test_linebreak() {
-    assert_eq!(
-      mulspace_0(
-        r"  
-  "
+  fn test_space() {
+    [
+      (" ", Ok("")),
+      ("	<-Tab", Ok("<-Tab")),
+      (
+        r"
+hello",
+        Ok("hello"),
       ),
-      ""
+      ("abc", Err(ParseError::NoMatch)),
+    ]
+    .map(tester(space()));
+  }
+  #[test]
+  fn test_num() {
+    [
+      ("123", Ok("23")),
+      ("abc", Err(ParseError::NoMatch)),
+      ("四", Err(ParseError::NoMatch)),
+    ]
+    .map(tester(num()));
+  }
+  #[test]
+  fn test_alpha() {
+    [("abc", Ok("bc")), ("123", Err(ParseError::NoMatch))].map(tester(alpha()));
+  }
+  #[test]
+  fn test_char() {
+    [("_test", Ok("test")), ("test", Err(ParseError::NoMatch))].map(tester(char('_')));
+  }
+  #[test]
+  fn test_str() {
+    [("return", Ok("")), ("12345", Err(ParseError::NoMatch))]
+      .map(tester(str("return".to_string())));
+  }
+
+  #[test]
+  fn test_mul() {
+    assert_eq!(mul(alpha())("abcde12345"), Ok("12345"));
+    assert_eq!(mul(space())(" hi"), Ok("hi"));
+    assert_eq!(mul(num())("abcde"), Err(ParseError::NoMatch));
+  }
+  #[test]
+  fn test_seq() {
+    let seq = seq(vec![alpha(), space(), num()]);
+    assert_eq!(seq("a 0"), Ok(""));
+    assert_eq!(seq("1"), Err(ParseError::NoMatch));
+  }
+  #[test]
+  fn test_or() {
+    let or = or(vec![space(), num(), alpha()]);
+    assert_eq!(or("  aa"), Ok(" aa"));
+    assert_eq!(or("012"), Ok("12"));
+    assert_eq!(or("test"), Ok("est"));
+    assert_eq!(or("++a"), Err(ParseError::NoMatch));
+  }
+  #[test]
+  fn test_optional() {
+    let input = "1234";
+    // Ensure the premise that `alpha("1234")` should return ParseError::NoMatch
+    #[rustfmt::skip] 
+    assert_eq!(        (alpha())(input), Err(ParseError::NoMatch));
+    assert_eq!(optional(alpha())(input), Ok(input));
+  }
+  #[test]
+  fn test_consumed() {
+    assert_eq!(consumed("test", alpha()), Ok(("t", "est")));
+    assert_eq!(
+      consumed("helloworld", str("hello".to_string())),
+      Ok(("hello", "world"))
     );
-  }
-  #[test]
-  fn space1_remove_whitespaces_when_input_begins_with_alphabet() {
-    let input = "     main";
-    let res = mulspace_1(input);
-    assert!(res.is_ok());
-    assert_eq!(res.unwrap(), "main");
-  }
-  #[test]
-  fn space1_fails_when_input_begins_with_alphabet() {
-    let input = "main";
-    assert!(mulspace_1(input).is_err());
-  }
-  #[test]
-  fn test_num_0() {
-    assert_eq!(num_0("0123"), (Some(0), "123"));
-    assert_eq!(num_0("a0b1"), (None, "a0b1"));
-  }
-  #[test]
-  fn num_1_returns_num_and_consumed_input_when_input_begins_with_num() {
-    let input = "0123";
-    let res = num_1(input);
-    assert!(res.is_ok());
-    let res = res.unwrap();
-    assert_eq!(res.0, 0);
-    assert_eq!(res.1, "123");
-  }
-  #[test]
-  fn num_1_fails_when_input_begins_with_alphabet() {
-    let input = "a0b1";
-    let res = num_1(input);
-    assert!(res.is_err());
-  }
-  #[test]
-  fn alpha_1_returns_test_and_consumed_input_when_input_begins_with_alphabet() {
-    let input = "abc";
-    let res = alpha_1(input);
-    assert!(res.is_ok());
-    let res = res.unwrap();
-    assert_eq!(res.0, 'a');
-    assert_eq!(res.1, "bc");
-  }
-  #[test]
-  fn alpha_1_fails_when_input_begins_with_number() {
-    let input = "012";
-    let res = alpha_1(input);
-    assert!(res.is_err());
-  }
-  #[test]
-  fn alpha_num_1_returns_test_and_consumed_input_when_input_begins_with_alphabet() {
-    let input = "abc";
-    let res = alpha_num_1(input);
-    assert!(res.is_ok());
-    let res = res.unwrap();
-    assert_eq!(res.0, 'a');
-    assert_eq!(res.1, "bc");
-  }
-  #[test]
-  fn alpha_num_1_returns_test_and_consumed_input_when_input_begins_with_number() {
-    let input = "01a";
-    let res = alpha_num_1(input);
-    assert!(res.is_ok());
-    let res = res.unwrap();
-    assert_eq!(res.0, '0');
-    assert_eq!(res.1, "1a");
-  }
-  #[test]
-  fn alpha_num_1_fails_when_input_begins_with_symbol() {
-    let input = "+";
-    let res = alpha_num_1(input);
-    assert!(res.is_err());
-  }
-  #[test]
-  fn expect_str_returns_same_input_when_input_is_same() {
-    let input = "fn";
-    let test = "fn";
-    let res = expect_str(input, test);
-    assert!(res.is_ok());
-    assert_eq!(res.unwrap().1, "");
-  }
-  #[test]
-  fn expect_str_fails_when_input_is_different() {
-    let input = "test";
-    let test = "fn";
-    let res = expect_str(input, test);
-    assert!(res.is_err());
-  }
-  #[test]
-  fn expect_str_fails_when_same_input_with_pre_spaces() {
-    let input = "     fn";
-    let test = "fn";
-    let res = expect_str(input, test);
-    assert!(res.is_err());
-  }
-  #[test]
-  fn expect_char_returns_consumed_input_when_input_begins_with_same_with_test() {
-    let input = "ABCDE";
-    let test = 'A';
-    let res = expect_char(input, test);
-    assert!(res.is_ok());
-    assert_eq!(res.unwrap().1, "BCDE");
-  }
-  #[test]
-  fn expect_char_fails_when_input_with_different_char_with_test() {
-    let input = "ABCDE";
-    let test = 'X';
-    let res = expect_char(input, test);
-    assert!(res.is_err());
+    assert_eq!(consumed("test", num()), Err(ParseError::NoMatch));
   }
 }

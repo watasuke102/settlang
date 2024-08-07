@@ -1,7 +1,5 @@
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ParseError {
-  UnexpectedStr,
-  UnexpectedChar,
-  ExpectedStatement,
-  ExpectedExpression,
+  NoMatch,
+  EmptyInput,
 }

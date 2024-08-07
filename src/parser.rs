@@ -119,6 +119,10 @@ pub fn consumed(input: &str, expecter: Expecter) -> Result<(&str, &str), ParseEr
   Ok((&input[..offset], consumed))
 }
 
+pub fn mulspace_0() -> Expecter {
+  optional(mul(space()))
+}
+
 #[cfg(test)]
 mod test {
   use super::*;

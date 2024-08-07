@@ -1,4 +1,7 @@
-use crate::{error, parser::*};
+use std::vec;
+
+use crate::{error::TokenizeError, parser::*};
+type TokenizeResult<'s, T> = Result<(T, /*input:*/ &'s str), TokenizeError>;
 
 #[derive(Debug)]
 pub enum Statement {
@@ -11,7 +14,7 @@ pub enum Declaration {
   FnDecl(Function),
 }
 
-pub fn expect_code(mut input: &str) -> ParseResult<Vec<Statement>> {
+pub fn expect_code(mut input: &str) -> TokenizeResult<Vec<Statement>> {
   let mut statements = Vec::new();
   while let Ok(res) = expect_statement(input) {
     statements.push(res.0);
@@ -20,7 +23,7 @@ pub fn expect_code(mut input: &str) -> ParseResult<Vec<Statement>> {
   Ok((statements, input))
 }
 
-fn expect_statement(input: &str) -> ParseResult<Statement> {
+fn expect_statement(input: &str) -> TokenizeResult<Statement> {
   let res = expect_return(input);
   if res.is_ok() {
     let res = res.unwrap();
@@ -32,18 +35,19 @@ fn expect_statement(input: &str) -> ParseResult<Statement> {
     let res = res.unwrap();
     return Ok((Statement::DeclStatement(res.0), res.1));
   }
-  Err(error::ParseError::ExpectedStatement)
+  Err(TokenizeError::ExpectedStatement)
 }
-fn expect_declaration(input: &str) -> ParseResult<Declaration> {
+fn expect_declaration(input: &str) -> TokenizeResult<Declaration> {
   let res = expect_fn_declaration(input)?;
   Ok((Declaration::FnDecl(res.0), res.1))
 }
 
-fn expect_return(input: &str) -> ParseResult<Expression> {
-  let Ok((_, input)) = expect_str(mulspace_0(input), "return") else {
-    return Err(error::ParseError::UnexpectedStr);
+fn expect_return(input: &str) -> TokenizeResult<Expression> {
+  let Ok(input) = seq(vec![str("return".to_string()), mul(space())])(mulspace_0()(input).unwrap())
+  else {
+    return Err(TokenizeError::ExpectedKeyword);
   };
-  expect_expression(mulspace_1(input)?)
+  expect_expression(input)
 }
 
 #[derive(Debug)]
@@ -52,19 +56,26 @@ pub struct Function {
   // TODO: arguments
   pub code: Vec<Statement>,
 }
-fn expect_fn_declaration(mut input: &str) -> Result<(Function, &str), error::ParseError> {
-  input = expect_str(mulspace_0(input), "fn")?.1;
+fn expect_fn_declaration(mut input: &str) -> Result<(Function, &str), TokenizeError> {
+  input = seq(vec![str("fn".to_string()), mul(space())])(mulspace_0()(input).unwrap())
+    .or(Err(TokenizeError::ExpectedKeyword))?;
   let name;
-  (name, input) = expect_identifier(mulspace_1(input)?)?;
-  input = expect_char(mulspace_0(input), '(')?.1;
+  (name, input) = expect_identifier(input)?;
   // TODO: arguments
-  input = expect_char(mulspace_0(input), ')')?.1;
-  input = expect_char(mulspace_0(input), '{')?.1;
+  input = seq(vec![
+    mulspace_0(),
+    char('('),
+    mulspace_0(),
+    char(')'),
+    mulspace_0(),
+    char('{'),
+  ])(mulspace_0()(input).unwrap())
+  .or(Err(TokenizeError::ExpectedKeyword))?;
 
   let code;
   (code, input) = expect_code(input)?;
 
-  input = expect_char(mulspace_0(input), '}')?.1;
+  input = char('}')(mulspace_0()(input).unwrap()).or(Err(TokenizeError::UnclosedDelimiter))?;
   Ok((Function { name, code }, input))
 }
 
@@ -77,19 +88,19 @@ pub enum Expression {
   Div(Box<Expression>, Box<Expression>),
 }
 // <expr> = <expr-secondary> ('+' <expr-secondary> | '-' <expr-secondary>)*
-fn expect_expression(mut input: &str) -> ParseResult<Expression> {
+fn expect_expression(mut input: &str) -> TokenizeResult<Expression> {
   let mut expr;
-  (expr, input) = expect_expr_secondary(mulspace_0(input))?;
+  (expr, input) = expect_expr_secondary(mulspace_0()(input).unwrap())?;
   loop {
-    if let Ok(res) = expect_char(mulspace_0(input), '+') {
-      input = res.1;
+    if let Ok(res) = char('+')(mulspace_0()(input).unwrap()) {
+      input = res;
       let second_expr;
-      (second_expr, input) = expect_expr_secondary(mulspace_0(input))?;
+      (second_expr, input) = expect_expr_secondary(mulspace_0()(input).unwrap())?;
       expr = Expression::Add(Box::new(expr), Box::new(second_expr));
-    } else if let Ok(res) = expect_char(mulspace_0(input), '-') {
-      input = res.1;
+    } else if let Ok(res) = char('-')(mulspace_0()(input).unwrap()) {
+      input = res;
       let second_expr;
-      (second_expr, input) = expect_expr_secondary(mulspace_0(input))?;
+      (second_expr, input) = expect_expr_secondary(mulspace_0()(input).unwrap())?;
       expr = Expression::Sub(Box::new(expr), Box::new(second_expr));
     } else {
       break;
@@ -98,19 +109,19 @@ fn expect_expression(mut input: &str) -> ParseResult<Expression> {
   Ok((expr, input))
 }
 // <expr-secondary> = <expr-primary> ('*' <expr-primary> | '/' <expr-primary>)*
-fn expect_expr_secondary(mut input: &str) -> ParseResult<Expression> {
+fn expect_expr_secondary(mut input: &str) -> TokenizeResult<Expression> {
   let mut expr;
-  (expr, input) = expect_expr_primary(mulspace_0(input))?;
+  (expr, input) = expect_expr_primary(mulspace_0()(input).unwrap())?;
   loop {
-    if let Ok(res) = expect_char(mulspace_0(input), '*') {
-      input = res.1;
+    if let Ok(res) = char('*')(mulspace_0()(input).unwrap()) {
+      input = res;
       let second_expr;
-      (second_expr, input) = expect_expr_primary(mulspace_0(input))?;
+      (second_expr, input) = expect_expr_primary(mulspace_0()(input).unwrap())?;
       expr = Expression::Mul(Box::new(expr), Box::new(second_expr));
-    } else if let Ok(res) = expect_char(mulspace_0(input), '/') {
-      input = res.1;
+    } else if let Ok(res) = char('/')(mulspace_0()(input).unwrap()) {
+      input = res;
       let second_expr;
-      (second_expr, input) = expect_expr_primary(mulspace_0(input))?;
+      (second_expr, input) = expect_expr_primary(mulspace_0()(input).unwrap())?;
       expr = Expression::Div(Box::new(expr), Box::new(second_expr));
     } else {
       break;
@@ -120,42 +131,35 @@ fn expect_expr_secondary(mut input: &str) -> ParseResult<Expression> {
 }
 // TODO: use function call and variable instead of <constant>
 // <expr-primary> = <constant> | '(' <expr> ')'
-fn expect_expr_primary(mut input: &str) -> ParseResult<Expression> {
-  if let Ok((_, input)) = expect_char(mulspace_0(input), '(') {
-    let Ok((expr, input)) = expect_expression(mulspace_0(input)) else {
-      return Err(error::ParseError::ExpectedExpression);
+fn expect_expr_primary(input: &str) -> TokenizeResult<Expression> {
+  if let Ok(input) = char('(')(mulspace_0()(input).unwrap()) {
+    let Ok((expr, input)) = expect_expression(mulspace_0()(input).unwrap()) else {
+      return Err(TokenizeError::ExpectedExpression);
     };
-    let (_, input) = expect_char(mulspace_0(input), ')')?;
+    let Ok(input) = char(')')(mulspace_0()(input).unwrap()) else {
+      return Err(TokenizeError::UnclosedDelimiter);
+    };
     return Ok((expr, input));
   }
 
-  let res = num_1(input)?;
-  let mut constant = res.0;
-  input = res.1;
-  loop {
-    let res = num_0(input);
-    if res.0.is_none() {
-      return Ok((Expression::Constant(constant), input));
-    }
-    constant = constant * 10 + res.0.unwrap();
-    input = res.1;
-  }
+  let Ok((constant, input)) = consumed(input, mul(num())) else {
+    return Err(TokenizeError::InvalidNumber);
+  };
+  let constant: i32 = constant.parse().or(Err(TokenizeError::InvalidNumber))?;
+  return Ok((Expression::Constant(constant), input));
 }
 
 /// consume Identifier and return (it, consumed input)
-fn expect_identifier(mut input: &str) -> Result<(String, &str), error::ParseError> {
-  let mut identity = String::new();
-  let result = alpha_1(input)?;
-  identity.push(result.0);
-  input = result.1;
-  loop {
-    let Ok(result) = alpha_num_1(input) else {
-      break;
-    };
-    input = result.1;
-    identity.push(result.0);
-  }
-  Ok((identity, input))
+fn expect_identifier(input: &str) -> TokenizeResult<String> {
+  let (identity, input) = consumed(
+    input,
+    seq(vec![
+      or(vec![alpha(), char('_')]),
+      optional(mul(or(vec![alpha(), char('_'), num()]))),
+    ]),
+  )
+  .or(Err(TokenizeError::InvalidIdentifier))?;
+  Ok((identity.to_string(), input))
 }
 
 #[cfg(test)]
@@ -252,22 +256,22 @@ mod test {
     let res = expect_expression(input);
     assert!(res.is_ok());
     let res = res.unwrap();
-    let Expression::Add(lhs, rhs) = res.0 else {
+    let Expression::Sub(lhs, rhs) = res.0 else {
       panic!(
-        "expect_expression({}) succeeded but does not return Expression::Add (returned: {:?})",
+        "expect_expression({}) succeeded but does not return Expression::Sub (returned: {:?})",
         input, res.0
       );
     };
-    let Expression::Sub(rhs_first, rhs_second) = *rhs else {
+    let Expression::Add(lhs_first, lhs_second) = *lhs else {
       panic!(
-        "Right-hand side of Expression::Add is not Expression::Sub(returned: {:?})",
-        rhs
+        "Right-hand side of Expression::Sub is not Expression::Add(returned: {:?})",
+        lhs
       );
     };
     assert_eq!(res.1, "");
-    assert_eq!(*lhs, Expression::Constant(1));
-    assert_eq!(*rhs_first, Expression::Constant(2));
-    assert_eq!(*rhs_second, Expression::Constant(3));
+    assert_eq!(*lhs_first, Expression::Constant(1));
+    assert_eq!(*lhs_second, Expression::Constant(2));
+    assert_eq!(*rhs, Expression::Constant(3));
   }
   #[test]
   fn expect_identifier_returns_str_before_whitespace_and_consumed_input() {

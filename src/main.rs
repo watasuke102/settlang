@@ -35,6 +35,8 @@ fn main() {
   return 0 
 }
 fn test() {
+  -1
+  2
   4+11   3-2
   10+1 * 6/3
   return 128

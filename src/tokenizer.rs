@@ -150,7 +150,7 @@ fn expect_expr_secondary(mut input: &str) -> TokenizeResult<Expression> {
 }
 // TODO: use function call and variable instead of <constant>
 // <expr-primary> = <constant> | '(' <expr> ')'
-fn expect_expr_primary(input: &str) -> TokenizeResult<Expression> {
+fn expect_expr_primary(mut input: &str) -> TokenizeResult<Expression> {
   if let Ok(input) = char('(')(mulspace_0()(input).unwrap()) {
     let Ok((expr, input)) = expect_expression(mulspace_0()(input).unwrap()) else {
       return Err(TokenizeError::ExpectedExpression);
@@ -161,11 +161,18 @@ fn expect_expr_primary(input: &str) -> TokenizeResult<Expression> {
     return Ok((expr, input));
   }
 
+  let mut sign = 1;
+  if let Ok(consumed) = char('+')(input) {
+    input = consumed;
+  } else if let Ok(consumed) = char('-')(input) {
+    input = consumed;
+    sign = -1;
+  }
   let Ok((constant, input)) = consumed(input, mul(num())) else {
     return Err(TokenizeError::InvalidNumber);
   };
   let constant: i32 = constant.parse().or(Err(TokenizeError::InvalidNumber))?;
-  return Ok((Expression::Constant(constant), input));
+  Ok((Expression::Constant(constant * sign), input))
 }
 
 /// consume Identifier and return (it, consumed input)
@@ -239,10 +246,18 @@ mod test {
   }
   #[test]
   fn test_expect_expression() {
-    for input in [
+    for (input, expect) in [
+      ("111", 111),      // constant
+      ("+11", 11),       // positive constant
+      ("-1", -1),        // negative constant
       ("10 + 20", 30),   // basic binary
       ("1+2 * 3", 7),    // mul should be prioritized
       ("2 * (4+6)", 20), // bracket should be prioritized
+      (
+        "6
+        -2",
+        4,
+      ), // multiline expression (maybe same behavior with JS?)
     ] {
       let Ok((expr, _)) = expect_expression(input) else {
         panic!("input `{}` is not parsed as expression", input);

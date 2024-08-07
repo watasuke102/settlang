@@ -17,6 +17,9 @@ fn print_statement(statement: Statement, indent: usize) {
         println!("{}}}", indent_space);
       }
     },
+    Statement::ExprStatement(expr) => {
+      println!("{}[expr] {:?} (eval: {})", indent_space, expr, expr.eval())
+    }
     Statement::Return(retval) => println!(
       "{}[return] retval: {:?} (eval: {})",
       indent_space,
@@ -32,6 +35,8 @@ fn main() {
   return 0 
 }
 fn test() {
+  4+11   3-2
+  10+1 * 6/3
   return 128
 }
 fn expr() {

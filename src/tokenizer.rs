@@ -6,6 +6,7 @@ type TokenizeResult<'s, T> = Result<(T, /*input:*/ &'s str), TokenizeError>;
 #[derive(Debug)]
 pub enum Statement {
   DeclStatement(Declaration),
+  ExprStatement(Expression),
   Return(Expression),
 }
 
@@ -34,6 +35,12 @@ fn expect_statement(input: &str) -> TokenizeResult<Statement> {
   if res.is_ok() {
     let res = res.unwrap();
     return Ok((Statement::DeclStatement(res.0), res.1));
+  }
+
+  let res = expect_expression(input);
+  if res.is_ok() {
+    let res = res.unwrap();
+    return Ok((Statement::ExprStatement(res.0), res.1));
   }
   Err(TokenizeError::ExpectedStatement)
 }

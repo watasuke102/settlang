@@ -16,6 +16,7 @@ pub enum Statement {
 #[derive(Debug)]
 pub enum Declaration {
   FnDecl(Function),
+  VarDecl(Variable),
 }
 
 pub fn expect_code(mut input: &str) -> TokenizeResult<Vec<Statement>> {
@@ -57,16 +58,51 @@ fn expect_statement(input: &str) -> TokenizeResult<Statement> {
   Err(TokenizeError::NoMatch)
 }
 
-fn expect_declaration(input: &str) -> TokenizeResult<Declaration> {
-  let res = expect_fn_declaration(input)?;
-  Ok((Declaration::FnDecl(res.0), res.1))
-}
-
 fn expect_return(input: &str) -> TokenizeResult<Expression> {
   let Ok(input) = seq(vec![str("return".to_string()), mul(space())])(input) else {
     return Err(TokenizeError::NoMatch);
   };
   expect_expression(input)
+}
+
+fn expect_declaration(input: &str) -> TokenizeResult<Declaration> {
+  match expect_fn_declaration(input) {
+    Ok(res) => return Ok((Declaration::FnDecl(res.0), res.1)),
+    Err(TokenizeError::NoMatch) => (),
+    Err(e) => return Err(e),
+  }
+  match expect_var_declaration(input) {
+    Ok(res) => return Ok((Declaration::VarDecl(res.0), res.1)),
+    Err(TokenizeError::NoMatch) => (),
+    Err(e) => return Err(e),
+  }
+
+  Err(TokenizeError::NoMatch)
+}
+
+#[derive(Debug)]
+pub struct Variable {
+  pub name:          String,
+  pub vartype:       String,
+  pub initial_value: Expression,
+}
+fn expect_var_declaration(input: &str) -> TokenizeResult<Variable> {
+  let Ok(input) = seq(vec![str("let".to_string()), mul(space())])(input) else {
+    return Err(TokenizeError::NoMatch);
+  };
+  let (name, input) = expect_identifier(input)?;
+  let input = char(':')(mulspace_0()(input).unwrap()).or(Err(TokenizeError::ExpectedKeyword))?;
+  let (type_ident, input) = expect_identifier(mulspace_0()(input).unwrap())?;
+  let input = char('=')(mulspace_0()(input).unwrap()).or(Err(TokenizeError::ExpectedKeyword))?;
+  let (initial_value, input) = expect_expression(mulspace_0()(input).unwrap())?;
+  Ok((
+    Variable {
+      name,
+      vartype: type_ident,
+      initial_value,
+    },
+    input,
+  ))
 }
 
 #[derive(Debug)]
@@ -203,6 +239,38 @@ fn expect_identifier(input: &str) -> TokenizeResult<String> {
 #[cfg(test)]
 mod test {
   use super::*;
+
+  #[test]
+  fn test_expect_var_declare() {
+    for (input, is_expected_success, varname, vartype) in [
+      ("let name: i32 = 0", true, "name", "i32"),
+      ("let nospace:i32=0", true, "nospace", "i32"),
+      ("let no_type = 0", false, "", ""),
+      ("let uninitialized:i32", false, "", ""),
+    ] {
+      let var = match expect_var_declaration(input) {
+        Ok(res) => {
+          if is_expected_success {
+            res.0
+          } else {
+            panic!("input `{}` is expected to fail but it succeeded", input);
+          }
+        }
+        Err(err) => {
+          if is_expected_success {
+            panic!(
+              "input `{}` is expected to succeed but it fails ({:?})",
+              input, err
+            );
+          } else {
+            continue;
+          }
+        }
+      };
+      assert_eq!(var.name, varname);
+      assert_eq!(var.vartype, vartype);
+    }
+  }
 
   #[test]
   fn test_expect_fn_declare() {

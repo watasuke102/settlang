@@ -16,6 +16,13 @@ fn print_statement(statement: Statement, indent: usize) {
           .for_each(|s| print_statement(s, indent + 1));
         println!("{}}}", indent_space);
       }
+      Declaration::VarDecl(var) => println!(
+        "{}[variable] {}: type={:?}, initial_value={}",
+        indent_space,
+        var.name,
+        var.vartype,
+        var.initial_value.eval()
+      ),
     },
     Statement::ExprStatement(expr) => {
       println!("{}[expr] {:?} (eval: {})", indent_space, expr, expr.eval())
@@ -41,6 +48,7 @@ fn test() {
   (+3)
   4+11   3-2
   10+1 * 6/3
+  let value: i32 = 0
   return 128
 }
 #*

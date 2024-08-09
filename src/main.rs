@@ -32,12 +32,13 @@ fn print_statement(statement: Statement, indent: usize) {
 fn main() {
   let input = r"
 fn main() {
-  return 0 
+  return 0
 }
 fn blank(){}
 fn test() {
   -1
   2
+  (+3)
   4+11   3-2
   10+1 * 6/3
   return 128
@@ -51,10 +52,22 @@ fn expr() {
 }
 
 ";
-  println!("=== parse result ===");
-  tokenizer::expect_code(input)
-    .unwrap()
-    .0
-    .into_iter()
-    .for_each(|s| print_statement(s, 0));
+  match tokenizer::expect_code(input) {
+    Ok((statements, input)) => {
+      println!(
+        "consumed_input.len: {} || {}",
+        input.len(),
+        if input.len() == 0 {
+          "Succeeded to parse!"
+        } else {
+          "Failed to parse"
+        }
+      );
+      println!("=== parse result ===");
+      statements.into_iter().for_each(|s| print_statement(s, 0))
+    }
+    Err(e) => {
+      println!("Failed to parse ({:?})", e);
+    }
+  }
 }

@@ -6,7 +6,7 @@ pub enum ParseError {
 
 #[derive(Debug, PartialEq)]
 pub enum TokenizeError {
-  ExpectedStatement,
+  NoMatch,
   ExpectedExpression,
   ExpectedKeyword,
   InvalidNumber,

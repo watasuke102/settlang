@@ -1,6 +1,9 @@
 use std::vec;
 
-use crate::{error::TokenizeError, parser::*};
+use crate::{
+  error::{ParseError, TokenizeError},
+  parser::*,
+};
 type TokenizeResult<'s, T> = Result<(T, /*input:*/ &'s str), TokenizeError>;
 
 #[derive(Debug)]
@@ -17,7 +20,17 @@ pub enum Declaration {
 
 pub fn expect_code(mut input: &str) -> TokenizeResult<Vec<Statement>> {
   let mut statements = Vec::new();
-  while let Ok(res) = expect_statement(input) {
+  loop {
+    input = match mul(space())(input) {
+      Ok(consumed) => consumed,
+      Err(ParseError::NoMatch) => input,
+      Err(ParseError::EmptyInput) => break,
+    };
+    let res = match expect_statement(input) {
+      Ok(res) => res,
+      Err(TokenizeError::NoMatch) => break,
+      Err(e) => return Err(e),
+    };
     statements.push(res.0);
     input = res.1;
   }
@@ -25,34 +38,33 @@ pub fn expect_code(mut input: &str) -> TokenizeResult<Vec<Statement>> {
 }
 
 fn expect_statement(input: &str) -> TokenizeResult<Statement> {
-  let res = expect_return(input);
-  if res.is_ok() {
-    let res = res.unwrap();
-    return Ok((Statement::Return(res.0), res.1));
+  match expect_return(input) {
+    Ok(res) => return Ok((Statement::Return(res.0), res.1)),
+    Err(TokenizeError::NoMatch) => (),
+    Err(e) => return Err(e),
+  }
+  match expect_declaration(input) {
+    Ok(res) => return Ok((Statement::DeclStatement(res.0), res.1)),
+    Err(TokenizeError::NoMatch) => (),
+    Err(e) => return Err(e),
+  }
+  match expect_expression(input) {
+    Ok(res) => return Ok((Statement::ExprStatement(res.0), res.1)),
+    Err(TokenizeError::InvalidNumber) => (),
+    Err(e) => return Err(e),
   }
 
-  let res = expect_declaration(input);
-  if res.is_ok() {
-    let res = res.unwrap();
-    return Ok((Statement::DeclStatement(res.0), res.1));
-  }
-
-  let res = expect_expression(input);
-  if res.is_ok() {
-    let res = res.unwrap();
-    return Ok((Statement::ExprStatement(res.0), res.1));
-  }
-  Err(TokenizeError::ExpectedStatement)
+  Err(TokenizeError::NoMatch)
 }
+
 fn expect_declaration(input: &str) -> TokenizeResult<Declaration> {
   let res = expect_fn_declaration(input)?;
   Ok((Declaration::FnDecl(res.0), res.1))
 }
 
 fn expect_return(input: &str) -> TokenizeResult<Expression> {
-  let Ok(input) = seq(vec![str("return".to_string()), mul(space())])(mulspace_0()(input).unwrap())
-  else {
-    return Err(TokenizeError::ExpectedKeyword);
+  let Ok(input) = seq(vec![str("return".to_string()), mul(space())])(input) else {
+    return Err(TokenizeError::NoMatch);
   };
   expect_expression(input)
 }
@@ -63,26 +75,26 @@ pub struct Function {
   // TODO: arguments
   pub code: Vec<Statement>,
 }
-fn expect_fn_declaration(mut input: &str) -> Result<(Function, &str), TokenizeError> {
-  input = seq(vec![str("fn".to_string()), mul(space())])(mulspace_0()(input).unwrap())
-    .or(Err(TokenizeError::ExpectedKeyword))?;
-  let name;
-  (name, input) = expect_identifier(input)?;
-  // TODO: arguments
-  input = seq(vec![
+fn expect_fn_declaration(input: &str) -> TokenizeResult<Function> {
+  let Ok(input) = seq(vec![str("fn".to_string()), mul(space())])(mulspace_0()(input).unwrap())
+  else {
+    return Err(TokenizeError::NoMatch);
+  };
+  let (name, input) = expect_identifier(input)?;
+  let input = seq(vec![
     mulspace_0(),
     char('('),
+    // TODO: arguments
     mulspace_0(),
     char(')'),
     mulspace_0(),
     char('{'),
-  ])(mulspace_0()(input).unwrap())
+  ])(input)
   .or(Err(TokenizeError::ExpectedKeyword))?;
 
-  let code;
-  (code, input) = expect_code(input)?;
+  let (code, input) = expect_code(mulspace_0()(input).unwrap()).unwrap();
 
-  input = char('}')(mulspace_0()(input).unwrap()).or(Err(TokenizeError::UnclosedDelimiter))?;
+  let input = char('}')(mulspace_0()(input).unwrap()).or(Err(TokenizeError::UnclosedDelimiter))?;
   Ok((Function { name, code }, input))
 }
 
@@ -109,7 +121,7 @@ impl Expression {
 // <expr> = <expr-secondary> ('+' <expr-secondary> | '-' <expr-secondary>)*
 fn expect_expression(mut input: &str) -> TokenizeResult<Expression> {
   let mut expr;
-  (expr, input) = expect_expr_secondary(mulspace_0()(input).unwrap())?;
+  (expr, input) = expect_expr_secondary(input)?;
   loop {
     if let Ok(res) = char('+')(mulspace_0()(input).unwrap()) {
       input = res;
@@ -130,7 +142,7 @@ fn expect_expression(mut input: &str) -> TokenizeResult<Expression> {
 // <expr-secondary> = <expr-primary> ('*' <expr-primary> | '/' <expr-primary>)*
 fn expect_expr_secondary(mut input: &str) -> TokenizeResult<Expression> {
   let mut expr;
-  (expr, input) = expect_expr_primary(mulspace_0()(input).unwrap())?;
+  (expr, input) = expect_expr_primary(input)?;
   loop {
     if let Ok(res) = char('*')(mulspace_0()(input).unwrap()) {
       input = res;
@@ -151,7 +163,7 @@ fn expect_expr_secondary(mut input: &str) -> TokenizeResult<Expression> {
 // TODO: use function call and variable instead of <constant>
 // <expr-primary> = <constant> | '(' <expr> ')'
 fn expect_expr_primary(mut input: &str) -> TokenizeResult<Expression> {
-  if let Ok(input) = char('(')(mulspace_0()(input).unwrap()) {
+  if let Ok(input) = char('(')(input) {
     let Ok((expr, input)) = expect_expression(mulspace_0()(input).unwrap()) else {
       return Err(TokenizeError::ExpectedExpression);
     };
@@ -196,17 +208,27 @@ mod test {
   fn test_expect_fn_declare() {
     for (input, is_expected_success, fname, retval) in [
       ("fn main(){return 0}", true, "main", 0),
-      ("   fn      func ( ) { return 128 }", true, "func", 128),
+      ("fn      func ( ) { return 128 }", true, "func", 128),
       ("fnmain() { return 0 }", false, "", 0),
-      ("fn main() { return0 }", false, "", 0),
-      ("fn main() { return }", false, " ", 0),
-      ("fn main) { return }", false, "  ", 0),
+      ("fn main) { return 0 }", false, "", 0),
     ] {
-      let Ok(res) = expect_fn_declaration(input) else {
-        if is_expected_success {
-          panic!("input `{}` is expected to succeed but it fails", input);
-        } else {
-          continue;
+      let res = match expect_fn_declaration(input) {
+        Ok(res) => {
+          if is_expected_success {
+            res
+          } else {
+            panic!("input `{}` is expected to fail but it succeeded", input);
+          }
+        }
+        Err(err) => {
+          if is_expected_success {
+            panic!(
+              "input `{}` is expected to succeed but it fails ({:?})",
+              input, err
+            );
+          } else {
+            continue;
+          }
         }
       };
       assert_eq!(res.0.name, fname.to_string());
@@ -228,7 +250,7 @@ mod test {
   fn test_expect_return() {
     for (input, is_expected_success, retval) in [
       ("return 0", true, 0),
-      ("   return 128", true, 128),
+      ("return    128", true, 128),
       ("return0", false, 0),
     ] {
       let Ok(res) = expect_return(input) else {

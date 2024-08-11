@@ -10,6 +10,5 @@ pub enum TokenizeError {
   ExpectedExpression,
   ExpectedKeyword,
   InvalidNumber,
-  InvalidIdentifier,
   UnclosedDelimiter,
 }

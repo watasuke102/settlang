@@ -17,18 +17,20 @@ fn print_statement(statement: Statement, indent: usize) {
         println!("{}}}", indent_space);
       }
       Declaration::VarDecl(var) => println!(
-        "{}[variable] {}: type={:?}, initial_value={}",
-        indent_space,
-        var.name,
-        var.vartype,
-        var.initial_value.eval()
+        "{}[variable] {}: type={:?}, initial_value={:?}",
+        indent_space, var.name, var.vartype, var.initial_value
       ),
     },
     Statement::ExprStatement(expr) => {
-      println!("{}[expr] {:?} (eval: {})", indent_space, expr, expr.eval())
+      println!(
+        "{}[expr] {:?} (eval: {:?})",
+        indent_space,
+        expr,
+        expr.eval()
+      )
     }
     Statement::Return(retval) => println!(
-      "{}[return] retval: {:?} (eval: {})",
+      "{}[return] retval: {:?} (eval: {:?})",
       indent_space,
       retval,
       retval.eval()
@@ -57,6 +59,11 @@ fn inside_comment() {
 *#
 fn expr() {
   return 10+20 - 1+3*6/(1+1) - 2
+}
+fn variables() {
+  let a: i32 = 10
+  let b: i32 = 5
+  return a + b*2
 }
 
 ";

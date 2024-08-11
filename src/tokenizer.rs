@@ -51,7 +51,7 @@ fn expect_statement(input: &str) -> TokenizeResult<Statement> {
   }
   match expect_expression(input) {
     Ok(res) => return Ok((Statement::ExprStatement(res.0), res.1)),
-    Err(TokenizeError::InvalidNumber) => (),
+    Err(TokenizeError::NoMatch) => (),
     Err(e) => return Err(e),
   }
 
@@ -128,7 +128,7 @@ fn expect_fn_declaration(input: &str) -> TokenizeResult<Function> {
   ])(input)
   .or(Err(TokenizeError::ExpectedKeyword))?;
 
-  let (code, input) = expect_code(mulspace_0()(input).unwrap()).unwrap();
+  let (code, input) = expect_code(mulspace_0()(input).unwrap())?;
 
   let input = char('}')(mulspace_0()(input).unwrap()).or(Err(TokenizeError::UnclosedDelimiter))?;
   Ok((Function { name, code }, input))
@@ -137,20 +137,23 @@ fn expect_fn_declaration(input: &str) -> TokenizeResult<Function> {
 #[derive(Debug, PartialEq)]
 pub enum Expression {
   Constant(i32),
+  Variable(String),
+  FnCall(String, Vec<Expression>),
   Add(Box<Expression>, Box<Expression>),
   Sub(Box<Expression>, Box<Expression>),
   Mul(Box<Expression>, Box<Expression>),
   Div(Box<Expression>, Box<Expression>),
 }
 impl Expression {
-  pub fn eval(&self) -> i32 {
+  pub fn eval(&self) -> Result<i32, ()> {
     use Expression::*;
     match self {
-      Constant(a) => *a,
-      Add(lhs, rhs) => lhs.eval() + rhs.eval(),
-      Sub(lhs, rhs) => lhs.eval() - rhs.eval(),
-      Mul(lhs, rhs) => lhs.eval() * rhs.eval(),
-      Div(lhs, rhs) => lhs.eval() / rhs.eval(),
+      Constant(a) => Ok(*a),
+      Add(lhs, rhs) => Ok(lhs.eval()? + rhs.eval()?),
+      Sub(lhs, rhs) => Ok(lhs.eval()? - rhs.eval()?),
+      Mul(lhs, rhs) => Ok(lhs.eval()? * rhs.eval()?),
+      Div(lhs, rhs) => Ok(lhs.eval()? / rhs.eval()?),
+      _ => Err(()),
     }
   }
 }
@@ -173,54 +176,92 @@ fn expect_expression(mut input: &str) -> TokenizeResult<Expression> {
       break;
     }
   }
-  Ok((expr, input))
-}
-// <expr-secondary> = <expr-primary> ('*' <expr-primary> | '/' <expr-primary>)*
-fn expect_expr_secondary(mut input: &str) -> TokenizeResult<Expression> {
-  let mut expr;
-  (expr, input) = expect_expr_primary(input)?;
-  loop {
-    if let Ok(res) = char('*')(mulspace_0()(input).unwrap()) {
-      input = res;
-      let second_expr;
-      (second_expr, input) = expect_expr_primary(mulspace_0()(input).unwrap())?;
-      expr = Expression::Mul(Box::new(expr), Box::new(second_expr));
-    } else if let Ok(res) = char('/')(mulspace_0()(input).unwrap()) {
-      input = res;
-      let second_expr;
-      (second_expr, input) = expect_expr_primary(mulspace_0()(input).unwrap())?;
-      expr = Expression::Div(Box::new(expr), Box::new(second_expr));
-    } else {
-      break;
+  return Ok((expr, input));
+
+  // <expr-secondary> = <expr-primary> ('*' <expr-primary> | '/' <expr-primary>)*
+  fn expect_expr_secondary(mut input: &str) -> TokenizeResult<Expression> {
+    let mut expr;
+    (expr, input) = expect_expr_primary(input)?;
+    loop {
+      if let Ok(res) = char('*')(mulspace_0()(input).unwrap()) {
+        input = res;
+        let second_expr;
+        (second_expr, input) = expect_expr_primary(mulspace_0()(input).unwrap())?;
+        expr = Expression::Mul(Box::new(expr), Box::new(second_expr));
+      } else if let Ok(res) = char('/')(mulspace_0()(input).unwrap()) {
+        input = res;
+        let second_expr;
+        (second_expr, input) = expect_expr_primary(mulspace_0()(input).unwrap())?;
+        expr = Expression::Div(Box::new(expr), Box::new(second_expr));
+      } else {
+        break;
+      }
     }
+    Ok((expr, input))
   }
-  Ok((expr, input))
-}
-// TODO: use function call and variable instead of <constant>
-// <expr-primary> = <constant> | '(' <expr> ')'
-fn expect_expr_primary(mut input: &str) -> TokenizeResult<Expression> {
-  if let Ok(input) = char('(')(input) {
-    let Ok((expr, input)) = expect_expression(mulspace_0()(input).unwrap()) else {
-      return Err(TokenizeError::ExpectedExpression);
+  // <expr-primary> = <constant> | '(' <expr> ')'
+  fn expect_expr_primary(input: &str) -> TokenizeResult<Expression> {
+    if let Ok(input) = char('(')(input) {
+      let Ok((expr, input)) = expect_expression(mulspace_0()(input).unwrap()) else {
+        return Err(TokenizeError::ExpectedExpression);
+      };
+      let Ok(input) = char(')')(mulspace_0()(input).unwrap()) else {
+        return Err(TokenizeError::UnclosedDelimiter);
+      };
+      return Ok((expr, input));
+    }
+
+    match expect_constant(input) {
+      Ok(res) => return Ok((Expression::Constant(res.0), res.1)),
+      Err(TokenizeError::NoMatch) => (),
+      Err(e) => return Err(e),
+    }
+
+    let (ident, input) = expect_identifier(input)?;
+    // check whether <ident> is function
+    let Ok(mut input) = char('(')(mulspace_0()(input).unwrap()) else {
+      return Ok((Expression::Variable(ident), input));
     };
+
+    let mut args = Vec::new();
+    loop {
+      match expect_expression(mulspace_0()(input).unwrap()) {
+        Ok((expr, consumed)) => {
+          args.push(expr);
+          input = consumed;
+        }
+        Err(TokenizeError::NoMatch) => break,
+        Err(e) => return Err(e),
+      }
+      match char(',')(mulspace_0()(input).unwrap()) {
+        Ok(consumed) => {
+          input = consumed;
+        }
+        Err(_) => break,
+      }
+    }
+
     let Ok(input) = char(')')(mulspace_0()(input).unwrap()) else {
       return Err(TokenizeError::UnclosedDelimiter);
     };
-    return Ok((expr, input));
-  }
 
-  let mut sign = 1;
-  if let Ok(consumed) = char('+')(input) {
-    input = consumed;
-  } else if let Ok(consumed) = char('-')(input) {
-    input = consumed;
-    sign = -1;
+    return Ok((Expression::FnCall(ident, args), input));
+
+    fn expect_constant(mut input: &str) -> TokenizeResult<i32> {
+      let mut sign = 1;
+      if let Ok(consumed) = char('+')(input) {
+        input = consumed;
+      } else if let Ok(consumed) = char('-')(input) {
+        input = consumed;
+        sign = -1;
+      }
+      let Ok((constant, input)) = consumed(input, mul(num())) else {
+        return Err(TokenizeError::NoMatch);
+      };
+      let constant: i32 = constant.parse().or(Err(TokenizeError::InvalidNumber))?;
+      Ok((constant * sign, input))
+    }
   }
-  let Ok((constant, input)) = consumed(input, mul(num())) else {
-    return Err(TokenizeError::InvalidNumber);
-  };
-  let constant: i32 = constant.parse().or(Err(TokenizeError::InvalidNumber))?;
-  Ok((Expression::Constant(constant * sign), input))
 }
 
 /// consume Identifier and return (it, consumed input)
@@ -232,7 +273,7 @@ fn expect_identifier(input: &str) -> TokenizeResult<String> {
       optional(mul(or(vec![alpha(), char('_'), num()]))),
     ]),
   )
-  .or(Err(TokenizeError::InvalidIdentifier))?;
+  .or(Err(TokenizeError::NoMatch))?;
   Ok((identity.to_string(), input))
 }
 
@@ -358,7 +399,48 @@ mod test {
       let Ok((expr, _)) = expect_expression(input) else {
         panic!("input `{}` is not parsed as expression", input);
       };
-      assert_eq!(expr.eval(), expect, "(input: {})", input);
+      assert_eq!(expr.eval(), Ok(expect), "(input: {})", input);
+    }
+  }
+  #[test]
+  fn expect_expression_succeeded_to_parse_expr_with_var() {
+    let varname = "var".to_string();
+    let input = format!("{} + 1", varname);
+    let Ok((res, _)) = expect_expression(&input) else {
+      panic!("failed to parse input `{}` as an expression", input);
+    };
+    let Expression::Add(var, _) = res else {
+      panic!(
+        "input `{}` was not parsed as Expression::Add (result: {:?})",
+        input, res
+      );
+    };
+    assert_eq!(*var, Expression::Variable(varname));
+  }
+  #[test]
+  fn expect_expression_succeed_to_parse_fncall() {
+    for (input, name, args) in [
+      ("noarg()", "noarg", vec![]),
+      ("constant_args ( 1,2, 3)", "constant_args", vec![1, 2, 3]),
+    ] {
+      let Ok((res, _)) = expect_expression(input) else {
+        panic!("failed to parse input `{}` as an expression", input);
+      };
+      let Expression::FnCall(parsed_name, parsed_args) = res else {
+        panic!(
+          "input `{}` is expected to be parsed as FnCall but actually {:?}",
+          input, res
+        );
+      };
+      assert_eq!(parsed_name, name);
+      for i in 0..args.len() {
+        assert_eq!(
+          parsed_args[i].eval().unwrap(),
+          args[i],
+          "input: `{}`",
+          input
+        );
+      }
     }
   }
   #[test]

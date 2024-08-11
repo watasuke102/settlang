@@ -9,6 +9,7 @@ pub enum TokenizeError {
   NoMatch,
   ExpectedExpression,
   ExpectedKeyword,
+  ExpectedType,
   InvalidNumber,
   UnclosedDelimiter,
 }

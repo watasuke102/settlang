@@ -92,7 +92,8 @@ fn expect_var_declaration(input: &str) -> TokenizeResult<Variable> {
   };
   let (name, input) = expect_identifier(input)?;
   let input = char(':')(mulspace_0()(input).unwrap()).or(Err(TokenizeError::ExpectedKeyword))?;
-  let (type_ident, input) = expect_identifier(mulspace_0()(input).unwrap())?;
+  let (type_ident, input) =
+    expect_identifier(mulspace_0()(input).unwrap()).or(Err(TokenizeError::ExpectedType))?;
   let input = char('=')(mulspace_0()(input).unwrap()).or(Err(TokenizeError::ExpectedKeyword))?;
   let (initial_value, input) = expect_expression(mulspace_0()(input).unwrap())?;
   Ok((
@@ -107,9 +108,10 @@ fn expect_var_declaration(input: &str) -> TokenizeResult<Variable> {
 
 #[derive(Debug)]
 pub struct Function {
-  pub name: String,
+  pub name:        String,
   // TODO: arguments
-  pub code: Vec<Statement>,
+  pub return_type: Option<String>,
+  pub code:        Vec<Statement>,
 }
 fn expect_fn_declaration(input: &str) -> TokenizeResult<Function> {
   let Ok(input) = seq(vec![str("fn".to_string()), mul(space())])(mulspace_0()(input).unwrap())
@@ -117,21 +119,38 @@ fn expect_fn_declaration(input: &str) -> TokenizeResult<Function> {
     return Err(TokenizeError::NoMatch);
   };
   let (name, input) = expect_identifier(input)?;
-  let input = seq(vec![
+  let mut input = seq(vec![
     mulspace_0(),
     char('('),
     // TODO: arguments
     mulspace_0(),
     char(')'),
-    mulspace_0(),
-    char('{'),
   ])(input)
   .or(Err(TokenizeError::ExpectedKeyword))?;
+
+  let return_type = match str("->".to_string())(mulspace_0()(input).unwrap()) {
+    Ok(consumed) => {
+      let (type_ident, consumed) =
+        expect_identifier(mulspace_0()(consumed).unwrap()).or(Err(TokenizeError::ExpectedType))?;
+      input = consumed;
+      Some(type_ident)
+    }
+    Err(_) => None,
+  };
+
+  let input = char('{')(mulspace_0()(input).unwrap()).or(Err(TokenizeError::ExpectedKeyword))?;
 
   let (code, input) = expect_code(mulspace_0()(input).unwrap())?;
 
   let input = char('}')(mulspace_0()(input).unwrap()).or(Err(TokenizeError::UnclosedDelimiter))?;
-  Ok((Function { name, code }, input))
+  Ok((
+    Function {
+      name,
+      return_type,
+      code,
+    },
+    input,
+  ))
 }
 
 #[derive(Debug, PartialEq)]
@@ -316,10 +335,11 @@ mod test {
   #[test]
   fn test_expect_fn_declare() {
     for (input, is_expected_success, fname, retval) in [
-      ("fn main(){return 0}", true, "main", 0),
-      ("fn      func ( ) { return 128 }", true, "func", 128),
+      ("fn main()->i32{return 0}", true, "main", 0),
+      ("fn      func ( ) -> i32 { return 128 }", true, "func", 128),
       ("fnmain() { return 0 }", false, "", 0),
       ("fn main) { return 0 }", false, "", 0),
+      ("fn main() - > i32 { return 0 }", false, "", 0),
     ] {
       let res = match expect_fn_declaration(input) {
         Ok(res) => {
@@ -342,6 +362,7 @@ mod test {
       };
       assert_eq!(res.0.name, fname.to_string());
       assert_eq!(res.0.code.len(), 1);
+      assert_eq!(res.0.return_type, Some("i32".to_string()));
       let Statement::Return(ref expr) = res.0.code[0] else {
         panic!(
           "Statement is wrong; expect: Return, actual: {:?}",

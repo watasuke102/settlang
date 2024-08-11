@@ -40,7 +40,7 @@ fn print_statement(statement: Statement, indent: usize) {
 
 fn main() {
   let input = r"
-fn main() {
+fn main() -> i32 {
   return 0
 }
 fn blank(){}
@@ -51,7 +51,6 @@ fn test() {
   4+11   3-2
   10+1 * 6/3
   let value: i32 = 0
-  return 128
 }
 #*
 fn inside_comment() {
@@ -60,7 +59,7 @@ fn inside_comment() {
 fn expr() {
   return 10+20 - 1+3*6/(1+1) - 2
 }
-fn variables() {
+fn variables() -> i32 {
   let a: i32 = 10
   let b: i32 = 5
   return a + b*2

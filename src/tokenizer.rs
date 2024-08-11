@@ -90,26 +90,30 @@ fn expect_var_declaration(input: &str) -> TokenizeResult<Variable> {
   let Ok(input) = seq(vec![str("let".to_string()), mul(space())])(input) else {
     return Err(TokenizeError::NoMatch);
   };
-  let (name, input) = expect_identifier(input)?;
-  let input = char(':')(mulspace_0()(input).unwrap()).or(Err(TokenizeError::ExpectedKeyword))?;
-  let (type_ident, input) =
-    expect_identifier(mulspace_0()(input).unwrap()).or(Err(TokenizeError::ExpectedType))?;
+  let ((name, vartype), input) = expect_var_spec(input)?;
   let input = char('=')(mulspace_0()(input).unwrap()).or(Err(TokenizeError::ExpectedKeyword))?;
   let (initial_value, input) = expect_expression(mulspace_0()(input).unwrap())?;
   Ok((
     Variable {
       name,
-      vartype: type_ident,
+      vartype,
       initial_value,
     },
     input,
   ))
 }
+/// (variable name, type name)
+fn expect_var_spec(input: &str) -> TokenizeResult<(String, String)> {
+  let (name, input) = expect_identifier(input)?;
+  let input = char(':')(mulspace_0()(input).unwrap()).or(Err(TokenizeError::ExpectedKeyword))?;
+  let (type_ident, input) =
+    expect_identifier(mulspace_0()(input).unwrap()).or(Err(TokenizeError::ExpectedType))?;
+  Ok(((name, type_ident), input))
+}
 
 #[derive(Debug)]
 pub struct Function {
   pub name:        String,
-  // TODO: arguments
   pub return_type: Option<String>,
   pub code:        Vec<Statement>,
 }
@@ -443,6 +447,7 @@ mod test {
     for (input, name, args) in [
       ("noarg()", "noarg", vec![]),
       ("constant_args ( 1,2, 3)", "constant_args", vec![1, 2, 3]),
+      ("trailing_comma(1, 1,)", "trailing_comma", vec![1, 1]),
     ] {
       let Ok((res, _)) = expect_expression(input) else {
         panic!("failed to parse input `{}` as an expression", input);

@@ -9,7 +9,22 @@ fn print_statement(statement: Statement, indent: usize) {
   match statement {
     Statement::DeclStatement(decl) => match decl {
       Declaration::FnDecl(func) => {
-        println!("{}[declare] fn {}() {{", indent_space, func.name);
+        println!(
+          "{}[declare] fn {}({}){} {{",
+          indent_space,
+          func.name,
+          func
+            .args
+            .iter()
+            .map(|e| format!("{}: {}", e.name, e.vartype))
+            .collect::<Vec<String>>()
+            .join(", "),
+          if func.return_type.is_some() {
+            format!(" -> {}", func.return_type.unwrap())
+          } else {
+            "".to_string()
+          },
+        );
         func
           .code
           .into_iter()
@@ -59,10 +74,13 @@ fn inside_comment() {
 fn expr() {
   return 10+20 - 1+3*6/(1+1) - 2
 }
+fn add(a: i32, b: i32) -> i32 {
+  return a+b
+}
 fn variables() -> i32 {
   let a: i32 = 10
   let b: i32 = 5
-  return a + b*2
+  return a + b*2 + add(b, 5)
 }
 
 ";

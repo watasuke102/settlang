@@ -114,8 +114,14 @@ fn expect_var_spec(input: &str) -> TokenizeResult<(String, String)> {
 #[derive(Debug)]
 pub struct Function {
   pub name:        String,
+  pub args:        Vec<Argument>,
   pub return_type: Option<String>,
   pub code:        Vec<Statement>,
+}
+#[derive(Debug)]
+pub struct Argument {
+  pub name:    String,
+  pub vartype: String,
 }
 fn expect_fn_declaration(input: &str) -> TokenizeResult<Function> {
   let Ok(input) = seq(vec![str("fn".to_string()), mul(space())])(mulspace_0()(input).unwrap())
@@ -123,14 +129,26 @@ fn expect_fn_declaration(input: &str) -> TokenizeResult<Function> {
     return Err(TokenizeError::NoMatch);
   };
   let (name, input) = expect_identifier(input)?;
-  let mut input = seq(vec![
-    mulspace_0(),
-    char('('),
-    // TODO: arguments
-    mulspace_0(),
-    char(')'),
-  ])(input)
-  .or(Err(TokenizeError::ExpectedKeyword))?;
+  let mut input =
+    char('(')(mulspace_0()(input).unwrap()).or(Err(TokenizeError::ExpectedKeyword))?;
+  let mut args = Vec::new();
+  loop {
+    match expect_var_spec(mulspace_0()(input).unwrap()) {
+      Ok(((name, vartype), consumed)) => {
+        args.push(Argument { name, vartype });
+        input = consumed;
+      }
+      Err(TokenizeError::NoMatch) => break,
+      Err(e) => return Err(e),
+    }
+    match char(',')(mulspace_0()(input).unwrap()) {
+      Ok(consumed) => {
+        input = consumed;
+      }
+      Err(_) => break,
+    }
+  }
+  input = char(')')(mulspace_0()(input).unwrap()).or(Err(TokenizeError::UnclosedDelimiter))?;
 
   let return_type = match str("->".to_string())(mulspace_0()(input).unwrap()) {
     Ok(consumed) => {
@@ -143,13 +161,13 @@ fn expect_fn_declaration(input: &str) -> TokenizeResult<Function> {
   };
 
   let input = char('{')(mulspace_0()(input).unwrap()).or(Err(TokenizeError::ExpectedKeyword))?;
-
   let (code, input) = expect_code(mulspace_0()(input).unwrap())?;
-
   let input = char('}')(mulspace_0()(input).unwrap()).or(Err(TokenizeError::UnclosedDelimiter))?;
+
   Ok((
     Function {
       name,
+      args,
       return_type,
       code,
     },
@@ -345,10 +363,10 @@ mod test {
       ("fn main) { return 0 }", false, "", 0),
       ("fn main() - > i32 { return 0 }", false, "", 0),
     ] {
-      let res = match expect_fn_declaration(input) {
+      let func = match expect_fn_declaration(input) {
         Ok(res) => {
           if is_expected_success {
-            res
+            res.0
           } else {
             panic!("input `{}` is expected to fail but it succeeded", input);
           }
@@ -364,19 +382,37 @@ mod test {
           }
         }
       };
-      assert_eq!(res.0.name, fname.to_string());
-      assert_eq!(res.0.code.len(), 1);
-      assert_eq!(res.0.return_type, Some("i32".to_string()));
-      let Statement::Return(ref expr) = res.0.code[0] else {
+      assert_eq!(func.name, fname.to_string());
+      assert_eq!(func.args.len(), 0);
+      assert_eq!(func.code.len(), 1);
+      assert_eq!(func.code.len(), 1);
+      assert_eq!(func.return_type, Some("i32".to_string()));
+      let Statement::Return(ref expr) = func.code[0] else {
         panic!(
           "Statement is wrong; expect: Return, actual: {:?}",
-          res.0.code[0]
+          func.code[0]
         );
       };
       let Expression::Constant(parsed_retval) = expr else {
         panic!("Expression is wrong; expect: Constant, actual: {:?}", expr);
       };
       assert_eq!(*parsed_retval, retval);
+    }
+  }
+  #[test]
+  fn expect_fn_for_arguments() {
+    for (input, expected_arg_names) in [
+      ("fn single(a: i32) {}", vec!["a"]),
+      (
+        "fn triple_trailing(first:i32,second:i32,third:i32){}",
+        vec!["first", "second", "third"],
+      ),
+    ] {
+      let (function, _) = expect_fn_declaration(input).expect(input);
+      for i in 0..expected_arg_names.len() {
+        assert_eq!(function.args[i].name, expected_arg_names[i]);
+        assert_eq!(function.args[i].vartype, "i32");
+      }
     }
   }
 

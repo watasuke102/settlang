@@ -1,29 +1,27 @@
-use crate::error::ParseError;
+use crate::{error::ParseError, source_code::SourceCode};
 
-// pub type Expection<'s> = ;
-type Expecter = Box<dyn Fn(&str) -> Result</*input:*/ &str, ParseError>>;
+type Expecter = Box<dyn Fn(&mut SourceCode) -> Result<(), ParseError>>;
 
 /// expect {char which has White_Space property in Unicode, comment}
 pub fn space() -> Expecter {
-  fn skip_comment(input: &str) -> Result<&str, ParseError> {
-    let mut chars = input.chars();
+  fn skip_comment(code: &mut SourceCode) -> Result<(), ParseError> {
     // block comment
     let mut is_block = false;
-    if chars.next().ok_or(ParseError::EmptyInput)? == '*' {
+    if code.pop().ok_or(ParseError::EmptyInput)? == '*' {
       is_block = true
     }
     loop {
-      match chars.next() {
+      match code.pop() {
         None => return Err(ParseError::EmptyInput),
         Some('\n') => {
           if !is_block {
-            return Ok(chars.as_str());
+            return Ok(());
           }
         }
         Some('*') => {
           if is_block {
-            if chars.next().ok_or(ParseError::EmptyInput)? == '#' {
-              return Ok(chars.as_str());
+            if code.pop().ok_or(ParseError::EmptyInput)? == '#' {
+              return Ok(());
             }
           }
         }
@@ -32,13 +30,14 @@ pub fn space() -> Expecter {
     }
   }
 
-  Box::new(|input| {
-    let mut chars = input.chars();
-    let c = chars.next().ok_or(ParseError::EmptyInput)?;
+  Box::new(|code| {
+    let c = code.current().ok_or(ParseError::EmptyInput)?;
     if c == '#' {
-      return skip_comment(chars.as_str());
+      code.next();
+      return skip_comment(code);
     } else if c.is_whitespace() {
-      Ok(chars.as_str())
+      code.next();
+      Ok(())
     } else {
       Err(ParseError::NoMatch)
     }
@@ -46,47 +45,52 @@ pub fn space() -> Expecter {
 }
 
 pub fn num() -> Expecter {
-  Box::new(|input| {
-    let mut chars = input.chars();
-    let c = chars.next().ok_or(ParseError::EmptyInput)?;
+  Box::new(|code| {
+    let c = code.current().ok_or(ParseError::EmptyInput)?;
     match c {
-      '0'..='9' => Ok(chars.as_str()),
+      '0'..='9' => {
+        code.next();
+        Ok(())
+      }
       _ => Err(ParseError::NoMatch),
     }
   })
 }
 pub fn alpha() -> Expecter {
-  Box::new(|input| {
-    let mut chars = input.chars();
-    let c = chars.next().ok_or(ParseError::EmptyInput)?;
+  Box::new(|code| {
+    let c = code.current().ok_or(ParseError::EmptyInput)?;
     match c {
-      'A'..='Z' | 'a'..='z' => Ok(chars.as_str()),
+      'A'..='Z' | 'a'..='z' => {
+        code.next();
+        Ok(())
+      }
       _ => Err(ParseError::NoMatch),
     }
   })
 }
 
 pub fn char(expect: char) -> Expecter {
-  Box::new(move |input| {
-    let mut chars = input.chars();
-    let c = chars.next().ok_or(ParseError::EmptyInput)?;
+  Box::new(move |code| {
+    let c = code.current().ok_or(ParseError::EmptyInput)?;
     if c == expect {
-      Ok(chars.as_str())
+      code.next();
+      Ok(())
     } else {
       Err(ParseError::NoMatch)
     }
   })
 }
 pub fn str(expect: String) -> Expecter {
-  Box::new(move |input| {
-    let mut input_chars = input.chars();
-    let mut expect_chars = expect.as_str().chars();
+  Box::new(move |code| {
+    let mut expect_input = expect.as_str().chars();
     loop {
-      let Some(expect_c) = expect_chars.next() else {
-        return Ok(input_chars.as_str());
+      let Some(expect_char) = expect_input.next() else {
+        return Ok(());
       };
-      let input_c = input_chars.next().ok_or(ParseError::EmptyInput)?;
-      if input_c != expect_c {
+      let code_char = code.current().ok_or(ParseError::EmptyInput)?;
+      if code_char == expect_char {
+        code.next();
+      } else {
         return Err(ParseError::NoMatch);
       }
     }
@@ -94,38 +98,31 @@ pub fn str(expect: String) -> Expecter {
 }
 
 pub fn mul(expecter: Expecter) -> Expecter {
-  Box::new(move |original_input| {
-    let mut input = original_input;
-    loop {
-      match expecter(input) {
-        Ok(consumed) => input = consumed,
-        Err(_) => {
-          if input == original_input {
-            return Err(ParseError::NoMatch);
-          } else {
-            return Ok(input);
-          }
-        }
-      }
+  Box::new(move |code| {
+    let initial_pos = code.pos();
+    while let Ok(()) = expecter(code) {}
+    if code.pos() == initial_pos {
+      return Err(ParseError::NoMatch);
+    } else {
+      return Ok(());
     }
   })
 }
 pub fn seq(expecters: Vec<Expecter>) -> Expecter {
-  Box::new(move |mut input| {
+  Box::new(move |code| {
     for expecter in &expecters {
-      match expecter(input) {
-        Ok(consumed) => input = consumed,
-        Err(e) => return Err(e),
+      if let Err(e) = expecter(code) {
+        return Err(e);
       }
     }
-    Ok(input)
+    Ok(())
   })
 }
 pub fn or(expecters: Vec<Expecter>) -> Expecter {
-  Box::new(move |input| {
+  Box::new(move |code| {
     for expecter in &expecters {
-      match expecter(input) {
-        Ok(input) => return Ok(input),
+      match expecter(code) {
+        Ok(()) => return Ok(()),
         Err(ParseError::NoMatch) => (),
         Err(e) => return Err(e),
       }
@@ -135,29 +132,38 @@ pub fn or(expecters: Vec<Expecter>) -> Expecter {
 }
 /// ignore ParseError::NoMatch
 pub fn optional(expecter: Expecter) -> Expecter {
-  Box::new(move |input| match expecter(input) {
+  Box::new(move |code| match expecter(code) {
     Ok(consumed) => return Ok(consumed),
-    Err(ParseError::NoMatch) => return Ok(input),
+    Err(ParseError::NoMatch) => return Ok(()),
     Err(e) => return Err(e),
   })
 }
 
-/// return (remaining input, retrieved string)
-pub fn consumed(input: &str, expecter: Expecter) -> Result<(&str, &str), ParseError> {
-  let consumed = expecter(input)?;
-  let offset = (consumed.as_ptr() as usize) - (input.as_ptr() as usize);
-  Ok((&input[..offset], consumed))
-}
-
-pub fn mulspace_0() -> Expecter {
-  optional(mul(space()))
+/// return (remaining code, retrieved string)
+pub fn consumed(code: &mut SourceCode, expecter: Expecter) -> Result<String, ParseError> {
+  let begin = code.pos();
+  expecter(code)?;
+  Ok(code.substr(begin, code.pos()))
 }
 
 #[cfg(test)]
 mod test {
   use super::*;
+  /// [( input code, Ok(consumed) or Err(error kind) )].map( tester(Expecter) )
   fn tester(f: Expecter) -> impl Fn((&str, Result<&str, ParseError>)) {
-    move |(input, expect)| assert_eq!(f(input), expect)
+    move |(code_str, expect)| {
+      let mut code = SourceCode::new(code_str);
+      match f(&mut code) {
+        Ok(()) => {
+          let expect_remaining = expect.expect("returned Ok but expected Err");
+          assert_eq!(code.remaining_code(), expect_remaining);
+        }
+        Err(err) => {
+          let expect_err = expect.expect_err("returned Err but expected Ok");
+          assert_eq!(err, expect_err, "input: {}", code_str);
+        }
+      }
+    }
   }
 
   #[test]
@@ -210,39 +216,42 @@ end",
 
   #[test]
   fn test_mul() {
-    assert_eq!(mul(alpha())("abcde12345"), Ok("12345"));
-    assert_eq!(mul(space())(" hi"), Ok("hi"));
-    assert_eq!(mul(num())("abcde"), Err(ParseError::NoMatch));
+    tester(mul(alpha()))(("abcde12345", Ok("12345")));
+    tester(mul(space()))((" hi", Ok("hi")));
+    tester(mul(num()))(("abcde", Err(ParseError::NoMatch)));
   }
   #[test]
   fn test_seq() {
-    let seq = seq(vec![alpha(), space(), num()]);
-    assert_eq!(seq("a 0"), Ok(""));
-    assert_eq!(seq("1"), Err(ParseError::NoMatch));
+    [("a 0", Ok("")), ("1", Err(ParseError::NoMatch))].map(tester(seq(vec![
+      alpha(),
+      space(),
+      num(),
+    ])));
   }
   #[test]
   fn test_or() {
-    let or = or(vec![space(), num(), alpha()]);
-    assert_eq!(or("  aa"), Ok(" aa"));
-    assert_eq!(or("012"), Ok("12"));
-    assert_eq!(or("test"), Ok("est"));
-    assert_eq!(or("++a"), Err(ParseError::NoMatch));
+    [
+      ("  aa", Ok(" aa")),
+      ("012", Ok("12")),
+      ("test", Ok("est")),
+      ("++a", Err(ParseError::NoMatch)),
+    ]
+    .map(tester(or(vec![space(), num(), alpha()])));
   }
   #[test]
   fn test_optional() {
-    let input = "1234";
-    // Ensure the premise that `alpha("1234")` should return ParseError::NoMatch
-    #[rustfmt::skip]
-    assert_eq!(        (alpha())(input), Err(ParseError::NoMatch));
-    assert_eq!(optional(alpha())(input), Ok(input));
+    let code = "1234";
+    #[rustfmt::skip] {
+      // Ensure the premise that `alpha("1234")` should return ParseError::NoMatch
+      tester(         alpha() ) ((code, Err(ParseError::NoMatch)));
+      tester(optional(alpha())) ((code, Ok(code)));
+    }
   }
   #[test]
+  #[rustfmt::skip]
   fn test_consumed() {
-    assert_eq!(consumed("test", alpha()), Ok(("t", "est")));
-    assert_eq!(
-      consumed("helloworld", str("hello".to_string())),
-      Ok(("hello", "world"))
-    );
-    assert_eq!(consumed("test", num()), Err(ParseError::NoMatch));
+    assert_eq!(consumed(&mut SourceCode::new("test"),       alpha()),                  Ok("t".to_string()));
+    assert_eq!(consumed(&mut SourceCode::new("helloworld"), str("hello".to_string())), Ok("hello".to_string()));
+    assert_eq!(consumed(&mut SourceCode::new("test"),       num()),                    Err(ParseError::NoMatch));
   }
 }

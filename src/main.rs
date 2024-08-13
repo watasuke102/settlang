@@ -1,7 +1,10 @@
+#![feature(stmt_expr_attributes)]
+use source_code::SourceCode;
 use tokenizer::{Declaration, Statement};
 
 mod error;
 mod parser;
+mod source_code;
 mod tokenizer;
 
 fn print_statement(statement: Statement, indent: usize) {
@@ -54,7 +57,8 @@ fn print_statement(statement: Statement, indent: usize) {
 }
 
 fn main() {
-  let input = r"
+  let mut code = SourceCode::new(
+    r"
 fn main() -> i32 {
   return 0
 }
@@ -83,13 +87,14 @@ fn variables() -> i32 {
   return a + b*2 + add(b, 5)
 }
 
-";
-  match tokenizer::expect_code(input) {
-    Ok((statements, input)) => {
+",
+  );
+  match tokenizer::expect_code(&mut code) {
+    Ok(statements) => {
       println!(
         "consumed_input.len: {} || {}",
-        input.len(),
-        if input.len() == 0 {
+        code.remaining_len(),
+        if code.remaining_len() == 0 {
           "Succeeded to parse!"
         } else {
           "Failed to parse"

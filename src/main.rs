@@ -57,11 +57,15 @@ fn print_statement(statement: Statement, indent: usize) {
 }
 
 fn main() {
-  let mut code = SourceCode::new(
+  for code in [
+    // basic
     r"
 fn main() -> i32 {
   return 0
 }
+",
+    // some expressions
+    r"
 fn blank(){}
 fn test() {
   -1
@@ -71,40 +75,72 @@ fn test() {
   10+1 * 6/3
   let value: i32 = 0
 }
+fn expr() {
+  return 
+    10+20
+    -
+    # comment is treated as spaces
+    1+3*6/(1+1) - 2
+}
 #*
 fn inside_comment() {
 }
 *#
-fn expr() {
-  return 10+20 - 1+3*6/(1+1) - 2
-}
+",
+    // function
+    r"
 fn add(a: i32, b: i32) -> i32 {
   return a+b
 }
-fn variables() -> i32 {
+fn variables() - > i32 {
   let a: i32 = 10
   let b: i32 = 5
   return a + b*2 + add(b, 5)
 }
-
 ",
-  );
-  match tokenizer::expect_code(&mut code) {
-    Ok(statements) => {
-      println!(
-        "consumed_input.len: {} || {}",
-        code.remaining_len(),
-        if code.remaining_len() == 0 {
-          "Succeeded to parse!"
-        } else {
-          "Failed to parse"
-        }
-      );
-      println!("=== parse result ===");
-      statements.into_iter().for_each(|s| print_statement(s, 0))
+    // error 0
+    r"
+fn error0( -> i32 {}
+",
+    // error 1
+    r"
+fn error1() 1+1
+",
+  ] {
+    // basically above examples start with '\n'
+    // so print `input{}`, not `input\n{}`
+    println!("=== input{}", code);
+    let mut code = SourceCode::new(code);
+    println!("=== parse result");
+    match tokenizer::expect_code(&mut code) {
+      Ok(statements) => {
+        println!(
+          "consumed_input.len: {} || {}",
+          code.remaining_len(),
+          if code.remaining_len() == 0 {
+            "Succeeded to parse!"
+          } else {
+            "Failed to parse"
+          }
+        );
+        statements.into_iter().for_each(|s| print_statement(s, 0))
+      }
+      Err(e) => {
+        let error_pos = code.lines_and_cols();
+        let line_str = error_pos.lines.to_string();
+        println!("[error] {} -> {:?}", error_pos, e);
+        println!(
+          "  {} | {}",
+          line_str,
+          code.line(error_pos.lines).unwrap_or_default()
+        );
+        println!(
+          "  {} | {}^",
+          " ".repeat(line_str.len()),
+          " ".repeat(error_pos.cols - 2)
+        )
+      }
     }
-    Err(e) => {
-      println!("Failed to parse ({:?})", e);
-    }
+    println!();
   }
 }

@@ -47,8 +47,38 @@ impl SourceCode {
   pub fn substr(&self, begin: usize, end: usize) -> String {
     String::from_iter(&self.code[begin..end])
   }
+  /// line: 1-indexed
+  pub fn line(&self, line: usize) -> Option<String> {
+    String::from_iter(self.code.iter())
+      .lines()
+      .nth(line - 1)
+      .map(|l| l.to_string())
+  }
+  /// return current position as lines and rows (1-indexed!)
+  pub fn lines_and_cols(&self) -> Position {
+    let mut pos = Position { lines: 1, cols: 1 };
+    for i in 0..self.current_pos {
+      pos.cols += 1;
+      if self.code[i] == '\n' {
+        pos.cols = 1;
+        pos.lines += 1;
+      }
+    }
+    pos
+  }
   #[cfg(test)]
   pub fn remaining_code(&self) -> String {
     self.substr(self.current_pos, self.code.len())
+  }
+}
+
+#[derive(Debug)]
+pub struct Position {
+  pub lines: usize,
+  pub cols:  usize,
+}
+impl std::fmt::Display for Position {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    write!(f, "{}:{}", self.lines, self.cols)
   }
 }

@@ -8,7 +8,7 @@ pub enum ParseError {
 pub enum TokenizeError {
   NoMatch,
   ExpectedExpression,
-  ExpectedKeyword,
+  Expected(&'static str),
   ExpectedType,
   InvalidNumber,
   UnclosedDelimiter,

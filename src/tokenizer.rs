@@ -85,7 +85,7 @@ pub struct Variable {
 fn expect_var_declaration(code: &mut SourceCode) -> TokenizeResult<Variable> {
   seq(vec![str("let".to_string()), mul(space())])(code).or(Err(TokenizeError::NoMatch))?;
   let (name, vartype) = expect_var_spec(code)?;
-  char('=')(code.skip_space()).or(Err(TokenizeError::ExpectedKeyword))?;
+  char('=')(code.skip_space()).or(Err(TokenizeError::Expected("= <initial value>")))?;
   let initial_value = expect_expression(code.skip_space())?;
   Ok(Variable {
     name,
@@ -96,7 +96,7 @@ fn expect_var_declaration(code: &mut SourceCode) -> TokenizeResult<Variable> {
 /// (variable name, type name)
 fn expect_var_spec(code: &mut SourceCode) -> TokenizeResult<(String, String)> {
   let name = expect_identifier(code)?;
-  char(':')(code.skip_space()).or(Err(TokenizeError::ExpectedKeyword))?;
+  char(':')(code.skip_space()).or(Err(TokenizeError::Expected(": <type>")))?;
   let type_ident = expect_identifier(code.skip_space()).or(Err(TokenizeError::ExpectedType))?;
   Ok((name, type_ident))
 }
@@ -117,7 +117,7 @@ fn expect_fn_declaration(code: &mut SourceCode) -> TokenizeResult<Function> {
   seq(vec![str("fn".to_string()), mul(space())])(code.skip_space())
     .or(Err(TokenizeError::NoMatch))?;
   let name = expect_identifier(code)?;
-  char('(')(code.skip_space()).or(Err(TokenizeError::ExpectedKeyword))?;
+  char('(')(code.skip_space()).or(Err(TokenizeError::Expected("(<arguments>?)")))?;
   let mut args = Vec::new();
   loop {
     match expect_var_spec(code.skip_space()) {
@@ -141,7 +141,7 @@ fn expect_fn_declaration(code: &mut SourceCode) -> TokenizeResult<Function> {
     Err(_) => None,
   };
 
-  char('{')(code.skip_space()).or(Err(TokenizeError::ExpectedKeyword))?;
+  char('{')(code.skip_space()).or(Err(TokenizeError::Expected("{ <code>? }")))?;
   let fn_code = expect_code(code.skip_space())?;
   char('}')(code.skip_space()).or(Err(TokenizeError::UnclosedDelimiter))?;
 

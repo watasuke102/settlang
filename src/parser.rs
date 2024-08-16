@@ -80,18 +80,24 @@ pub fn char(expect: char) -> Expecter {
     }
   })
 }
-pub fn str(expect: String) -> Expecter {
+pub fn str(expect: &'static str) -> Expecter {
   Box::new(move |code| {
-    let mut expect_input = expect.as_str().chars();
+    let mut matched = String::new();
+    let mut expect_input = expect.chars();
     loop {
       let Some(expect_char) = expect_input.next() else {
         return Ok(());
       };
       let code_char = code.current().ok_or(ParseError::EmptyInput)?;
       if code_char == expect_char {
+        matched.push(code_char);
         code.next();
       } else {
-        return Err(ParseError::NoMatch);
+        if matched.len() == 0 {
+          return Err(ParseError::NoMatch);
+        } else {
+          return Err(ParseError::PartialMatch(matched));
+        }
       }
     }
   })
@@ -210,8 +216,12 @@ end",
   }
   #[test]
   fn test_str() {
-    [("return", Ok("")), ("12345", Err(ParseError::NoMatch))]
-      .map(tester(str("return".to_string())));
+    [
+      ("return", Ok("")),
+      ("12345", Err(ParseError::NoMatch)),
+      ("retval", Err(ParseError::PartialMatch("ret".to_string()))),
+    ]
+    .map(tester(str("return")));
   }
 
   #[test]
@@ -250,8 +260,8 @@ end",
   #[test]
   #[rustfmt::skip]
   fn test_consumed() {
-    assert_eq!(consumed(&mut SourceCode::new("test"),       alpha()),                  Ok("t".to_string()));
-    assert_eq!(consumed(&mut SourceCode::new("helloworld"), str("hello".to_string())), Ok("hello".to_string()));
-    assert_eq!(consumed(&mut SourceCode::new("test"),       num()),                    Err(ParseError::NoMatch));
+    assert_eq!(consumed(&mut SourceCode::new("test"),       alpha()),      Ok("t".to_string()));
+    assert_eq!(consumed(&mut SourceCode::new("helloworld"), str("hello")), Ok("hello".to_string()));
+    assert_eq!(consumed(&mut SourceCode::new("test"),       num()),        Err(ParseError::NoMatch));
   }
 }

@@ -14,3 +14,12 @@ pub enum TokenizeError {
   InvalidNumber,
   UnclosedDelimiter,
 }
+
+#[derive(Debug, PartialEq)]
+pub enum CompileError {
+  UndefinedVariable,
+  UndefinedFunction,
+  GlobalVariableWithMain,
+  GlobalStatementWithMain,
+  NotImplemented,
+}

@@ -1,7 +1,9 @@
 #![feature(stmt_expr_attributes)]
+use compile::Program;
 use source_code::SourceCode;
 use tokenizer::Statement;
 
+mod compile;
 mod error;
 mod parser;
 mod source_code;
@@ -62,48 +64,52 @@ fn main() -> i32 {
   return 0
 }
 ",
-    // some expressions
+    // no main
     r"
-fn blank(){}
-fn test() {
-  -1
-  2
-  (+3)
-  4+11   3-2
-  10+1 * 6/3
-  let value: i32 = 0
-}
-fn expr() {
-  return 
-    10+20
-    -
-    # comment is treated as spaces
-    1+3*6/(1+1) - 2
-}
-#*
-fn inside_comment() {
-}
-*#
+return 2
 ",
-    // function
-    r"
-fn add(a: i32, b: i32) -> i32 {
-  return a+b
-}
-fn variables() - > i32 {
-  let a: i32 = 10
-  let b: i32 = 5
-  return a + b*2 + add(b, 5)
-}
-",
-    // error 0
-    r"
-fn error0( -> i32 {}
-",
-    // error 1
-    r"
-fn error1() 1+1
-",
+    // // some expressions
+    // r"
+    // fn blank(){}
+    // fn test() {
+    //   -1
+    //   2
+    //   (+3)
+    //   4+11   3-2
+    //   10+1 * 6/3
+    //   let value: i32 = 0
+    // }
+    // fn expr() {
+    //   return
+    //     10+20
+    //     -
+    //     # comment is treated as spaces
+    //     1+3*6/(1+1) - 2
+    // }
+    // #*
+    // fn inside_comment() {
+    // }
+    // *#
+    // ",
+    // // function
+    // r"
+    // fn add(a: i32, b: i32) -> i32 {
+    //   return a+b
+    // }
+    // fn variables() - > i32 {
+    //   let a: i32 = 10
+    //   let b: i32 = 5
+    //   return a + b*2 + add(b, 5)
+    // }
+    // ",
+    // // error 0
+    // r"
+    // fn error0( -> i32 {}
+    // ",
+    // // error 1
+    // r"
+    // fn error1() 1+1
+    // ",
   ] {
     // basically above examples start with '\n'
     // so print `input{}`, not `input\n{}`
@@ -142,5 +148,12 @@ fn error1() 1+1
       }
     };
     println!();
+    println!("=== compile result");
+    let prog = Program::from_statements(statements);
+    match prog {
+      Ok(prog) => println!("Succeeded to compile || {:?}", prog),
+      Err(errors) => println!("Failed to compile || {:?}", errors),
+    }
+    println!("----------------------------------------------");
   }
 }

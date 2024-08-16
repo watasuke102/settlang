@@ -1,44 +1,42 @@
 #![feature(stmt_expr_attributes)]
 use source_code::SourceCode;
-use tokenizer::{Declaration, Statement};
+use tokenizer::Statement;
 
 mod error;
 mod parser;
 mod source_code;
 mod tokenizer;
 
-fn print_statement(statement: Statement, indent: usize) {
+fn print_statement(statement: &Statement, indent: usize) {
   let indent_space = "  ".repeat(indent);
   match statement {
-    Statement::DeclStatement(decl) => match decl {
-      Declaration::FnDecl(func) => {
-        println!(
-          "{}[declare] fn {}({}){} {{",
-          indent_space,
-          func.name,
-          func
-            .args
-            .iter()
-            .map(|e| format!("{}: {}", e.name, e.vartype))
-            .collect::<Vec<String>>()
-            .join(", "),
-          if func.return_type.is_some() {
-            format!(" -> {}", func.return_type.unwrap())
-          } else {
-            "".to_string()
-          },
-        );
+    Statement::FnDecl(func) => {
+      println!(
+        "{}[declare] fn {}({}){} {{",
+        indent_space,
+        func.name,
         func
-          .code
-          .into_iter()
-          .for_each(|s| print_statement(s, indent + 1));
-        println!("{}}}", indent_space);
-      }
-      Declaration::VarDecl(var) => println!(
-        "{}[variable] {}: type={:?}, initial_value={:?}",
-        indent_space, var.name, var.vartype, var.initial_value
-      ),
-    },
+          .args
+          .iter()
+          .map(|e| format!("{}: {}", e.name, e.vartype))
+          .collect::<Vec<String>>()
+          .join(", "),
+        if func.return_type.is_some() {
+          format!(" -> {}", func.return_type.as_ref().unwrap())
+        } else {
+          "".to_string()
+        },
+      );
+      func
+        .code
+        .iter()
+        .for_each(|s| print_statement(&s, indent + 1));
+      println!("{}}}", indent_space);
+    }
+    Statement::VarDecl(var) => println!(
+      "{}[variable] {}: type={:?}, initial_value={:?}",
+      indent_space, var.name, var.vartype, var.initial_value
+    ),
     Statement::ExprStatement(expr) => {
       println!(
         "{}[expr] {:?} (eval: {:?})",
@@ -112,7 +110,7 @@ fn error1() 1+1
     println!("=== input{}", code);
     let mut code = SourceCode::new(code);
     println!("=== parse result");
-    match tokenizer::expect_code(&mut code) {
+    let statements = match tokenizer::expect_code(&mut code) {
       Ok(statements) => {
         println!(
           "consumed_input.len: {} || {}",
@@ -123,7 +121,8 @@ fn error1() 1+1
             "Failed to parse"
           }
         );
-        statements.into_iter().for_each(|s| print_statement(s, 0))
+        statements.iter().for_each(|s| print_statement(&s, 0));
+        statements
       }
       Err(e) => {
         let error_pos = code.lines_and_cols();
@@ -138,9 +137,10 @@ fn error1() 1+1
           "  {} | {}^",
           " ".repeat(line_str.len()),
           " ".repeat(error_pos.cols - 2)
-        )
+        );
+        continue;
       }
-    }
+    };
     println!();
   }
 }

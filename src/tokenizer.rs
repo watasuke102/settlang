@@ -9,15 +9,10 @@ type TokenizeResult<'s, T> = Result<T, TokenizeError>;
 
 #[derive(Debug)]
 pub enum Statement {
-  DeclStatement(Declaration),
-  ExprStatement(Expression),
-  Return(Expression),
-}
-
-#[derive(Debug)]
-pub enum Declaration {
   FnDecl(Function),
   VarDecl(Variable),
+  ExprStatement(Expression),
+  Return(Expression),
 }
 
 pub fn expect_code(code: &mut SourceCode) -> TokenizeResult<Vec<Statement>> {
@@ -42,8 +37,13 @@ fn expect_statement(code: &mut SourceCode) -> TokenizeResult<Statement> {
     Err(TokenizeError::NoMatch) => (),
     Err(e) => return Err(e),
   }
-  match expect_declaration(code) {
-    Ok(res) => return Ok(Statement::DeclStatement(res)),
+  match expect_fn_declaration(code) {
+    Ok(res) => return Ok(Statement::FnDecl(res)),
+    Err(TokenizeError::NoMatch) => (),
+    Err(e) => return Err(e),
+  }
+  match expect_var_declaration(code) {
+    Ok(res) => return Ok(Statement::VarDecl(res)),
     Err(TokenizeError::NoMatch) => (),
     Err(e) => return Err(e),
   }
@@ -59,21 +59,6 @@ fn expect_statement(code: &mut SourceCode) -> TokenizeResult<Statement> {
 fn expect_return(code: &mut SourceCode) -> TokenizeResult<Expression> {
   seq(vec![str("return"), mul(space())])(code).or(Err(TokenizeError::NoMatch))?;
   expect_expression(code)
-}
-
-fn expect_declaration(code: &mut SourceCode) -> TokenizeResult<Declaration> {
-  match expect_fn_declaration(code) {
-    Ok(res) => return Ok(Declaration::FnDecl(res)),
-    Err(TokenizeError::NoMatch) => (),
-    Err(e) => return Err(e),
-  }
-  match expect_var_declaration(code) {
-    Ok(res) => return Ok(Declaration::VarDecl(res)),
-    Err(TokenizeError::NoMatch) => (),
-    Err(e) => return Err(e),
-  }
-
-  Err(TokenizeError::NoMatch)
 }
 
 #[derive(Debug)]

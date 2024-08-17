@@ -20,7 +20,8 @@ pub fn space() -> Expecter {
         }
         Some('*') => {
           if is_block {
-            if code.pop().ok_or(ParseError::EmptyInput)? == '#' {
+            if code.current().ok_or(ParseError::EmptyInput)? == '#' {
+              code.next();
               return Ok(());
             }
           }
@@ -196,6 +197,7 @@ end",
          *#end",
         Ok("end"),
       ),
+      ("#** comment ****#", Ok("")),
       ("abc", Err(ParseError::NoMatch)),
     ]
     .map(tester(space()));

@@ -19,6 +19,8 @@ pub enum TokenizeError {
 pub enum CompileError {
   UndefinedVariable,
   UndefinedFunction,
+  DuplicatedDecl,
+  InvalidType,
   GlobalVariableWithMain,
   GlobalStatementWithMain,
   NotImplemented,

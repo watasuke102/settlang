@@ -13,10 +13,20 @@ pub struct Program {
   functions: Vec<Function>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum Type {
   I32,
   I64,
+}
+impl TryFrom<String> for Type {
+  type Error = ();
+  fn try_from(s: String) -> Result<Self, Self::Error> {
+    match s.as_str() {
+      "i32" => Ok(Type::I32),
+      "i64" => Ok(Type::I64),
+      _ => Err(()),
+    }
+  }
 }
 
 struct UncompiledFunction {
@@ -30,6 +40,18 @@ struct UncompiledFunction {
   parent:          Option<UncompiledFnCarrier>,
 }
 impl UncompiledFunction {
+  fn new(idx: usize, token: &tokenizer::Function, parent: Option<UncompiledFnCarrier>) -> Self {
+    UncompiledFunction {
+      idx,
+      name: token.name.clone(),
+      args: token.args.clone(),
+      return_type: token.return_type.clone(),
+      code: token.code.clone(),
+      same_level_func: HashMap::new(),
+      owning_func: HashMap::new(),
+      parent,
+    }
+  }
   fn idx_from_accessible_fn_name(&self, name: String) -> Option<usize> {
     if let Some(f) = self.owning_func.get(&name) {
       return Some(f.borrow().idx);
@@ -219,27 +241,21 @@ impl Program {
   }
 }
 
-impl UncompiledFunction {
-  pub fn new(idx: usize, token: &tokenizer::Function, parent: Option<UncompiledFnCarrier>) -> Self {
-    UncompiledFunction {
-      idx,
-      name: token.name.clone(),
-      args: token.args.clone(),
-      return_type: token.return_type.clone(),
-      code: token.code.clone(),
-      same_level_func: HashMap::new(),
-      owning_func: HashMap::new(),
-      parent,
-    }
-  }
-}
-
 impl Function {
   fn compile(func: UncompiledFnCarrier) -> CompileResult<Self> {
     let mut errors = Vec::new();
     let func = func.borrow();
-    let mut code: Vec<Statement> = Vec::new();
 
+    let return_type = func.return_type.as_ref().and_then(|t| {
+      Type::try_from(t.clone())
+        .or_else(|_| {
+          errors.push(CompileError::InvalidType);
+          Err(())
+        })
+        .ok()
+    });
+
+    let mut code: Vec<Statement> = Vec::new();
     for statement in &func.code {
       match statement {
         tokenizer::Statement::FnDecl(_) => continue,
@@ -259,12 +275,23 @@ impl Function {
         idx: func.idx,
         name: func.name.clone(),
         args: HashMap::new(),
-        return_type: None,
+        return_type,
         code,
         variables: HashMap::new(),
       })
     } else {
       Err(errors)
     }
+  }
+}
+
+#[cfg(test)]
+mod test {
+  use super::*;
+  #[test]
+  fn convert_type_from_string() {
+    assert_eq!(Type::try_from("i32".to_string()), Ok(Type::I32));
+    assert_eq!(Type::try_from("i64".to_string()), Ok(Type::I64));
+    assert!(Type::try_from("i65535".to_string()).is_err());
   }
 }

@@ -10,7 +10,7 @@ type CompileResult<T> = Result<T, Vec<CompileError>>;
 
 #[derive(Debug)]
 pub struct Program {
-  functions: HashMap<String, Function>,
+  functions: Vec<Function>,
 }
 
 #[derive(Debug)]
@@ -169,35 +169,53 @@ impl Program {
       );
     }
 
-    // let program = {
-    //   let main = UncompiledFunction::new(
-    //     usize::MAX,
-    //     "main".to_string(),
-    //     vec![],
-    //     None,
-    //     statements,
-    //     None,
-    //   )?;
-    //   if main.functions.get("main").is_none() {
-    //     Program {
-    //       functions: HashMap::from([("main".to_string(), main)]),
-    //     }
-    //   } else {
-    //     if main.variables.len() != 0 {
-    //       errors.push(CompileError::GlobalVariableWithMain);
-    //     }
-    //     // TODO: code.len shoud be 0?
-    //     Program {
-    //       functions: main.functions,
-    //     }
-    //   }
-    // };
+    // compile UncompiledFunctions
+    let should_wrap_virtual_main = !uncompiled_functions
+      .iter()
+      .any(|f| f.borrow().name == "main");
+    if should_wrap_virtual_main {
+      let main = UncompiledFunction {
+        idx:             uncompiled_functions.len(),
+        name:            String::from("main"),
+        args:            vec![],
+        return_type:     None,
+        code:            statements,
+        same_level_func: HashMap::new(),
+        owning_func:     uncompiled_functions
+          .clone()
+          .into_iter()
+          .map(|f| {
+            let name = f.borrow().name.clone();
+            (name, f.to_owned())
+          })
+          .collect(),
+        parent:          None,
+      };
+      uncompiled_functions.push(Rc::new(RefCell::new(main)));
+    }
+    let mut compiled_functions = Vec::new();
+    for func in uncompiled_functions.into_iter() {
+      match Function::compile(func) {
+        Ok(compiled) => {
+          if compiled.name == "main" && should_wrap_virtual_main {
+            if compiled.variables.len() != 0 {
+              errors.push(CompileError::GlobalVariableWithMain);
+            }
+          }
+          compiled_functions.push(compiled);
+        }
+        Err(mut res) => errors.append(&mut res),
+      }
+    }
+    println!(">>> functions: {:#?}", compiled_functions);
 
-    // if errors.len() == 0 {
-    //   Ok(program)
-    // } else {
-    Err(errors)
-    // }
+    if errors.len() == 0 {
+      Ok(Program {
+        functions: compiled_functions,
+      })
+    } else {
+      Err(errors)
+    }
   }
 }
 
@@ -212,6 +230,41 @@ impl UncompiledFunction {
       same_level_func: HashMap::new(),
       owning_func: HashMap::new(),
       parent,
+    }
+  }
+}
+
+impl Function {
+  fn compile(func: UncompiledFnCarrier) -> CompileResult<Self> {
+    let mut errors = Vec::new();
+    let func = func.borrow();
+    let mut code: Vec<Statement> = Vec::new();
+
+    for statement in &func.code {
+      match statement {
+        tokenizer::Statement::FnDecl(_) => continue,
+        tokenizer::Statement::Return(expr) => {
+          let tokenizer::Expression::Constant(retval) = expr else {
+            errors.push(CompileError::NotImplemented);
+            continue;
+          };
+          code.push(Statement::Return(Expression::Constant(*retval)));
+        }
+        _ => errors.push(CompileError::NotImplemented),
+      }
+    }
+
+    if errors.len() == 0 {
+      Ok(Function {
+        idx: func.idx,
+        name: func.name.clone(),
+        args: HashMap::new(),
+        return_type: None,
+        code,
+        variables: HashMap::new(),
+      })
+    } else {
+      Err(errors)
     }
   }
 }

@@ -68,6 +68,36 @@ fn main() -> i32 {
     r"
 return 2
 ",
+    r"
+fn f1() -> i32 {
+  return 1
+}
+fn f2() -> i32 {
+  return 2
+}
+return 3
+",
+    // nest
+    r"
+fn f0() {
+    fn f2() {
+        fn f5() {
+            f0() # ok
+            # f8() <- NG
+        }
+        fn f6() -> i32 {}
+    }
+}
+fn f1() {
+    fn f3() {
+        fn f7() {
+            f8() # ok
+            fn f8() -> i32 {}
+        }
+    }
+    fn f4() -> i32 {}
+}
+",
     // // some expressions
     // r"
     // fn blank(){}

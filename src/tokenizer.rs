@@ -7,7 +7,7 @@ use crate::{
 };
 type TokenizeResult<'s, T> = Result<T, TokenizeError>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Statement {
   FnDecl(Function),
   VarDecl(Variable),
@@ -61,7 +61,7 @@ fn expect_return(code: &mut SourceCode) -> TokenizeResult<Expression> {
   expect_expression(code)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Variable {
   pub name:          String,
   pub vartype:       String,
@@ -86,14 +86,14 @@ fn expect_var_spec(code: &mut SourceCode) -> TokenizeResult<(String, String)> {
   Ok((name, type_ident))
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Function {
   pub name:        String,
   pub args:        Vec<Argument>,
   pub return_type: Option<String>,
   pub code:        Vec<Statement>,
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Argument {
   pub name:    String,
   pub vartype: String,
@@ -138,7 +138,7 @@ fn expect_fn_declaration(code: &mut SourceCode) -> TokenizeResult<Function> {
   })
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expression {
   Constant(i32),
   Variable(String),

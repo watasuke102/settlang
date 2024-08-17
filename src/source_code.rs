@@ -17,6 +17,10 @@ impl SourceCode {
   pub fn remaining_len(&self) -> usize {
     self.code.len() - self.current_pos
   }
+  /// just set current_pos but expected to go back
+  pub fn unwind(&mut self, prev_pos: usize) {
+    self.current_pos = prev_pos;
+  }
   /// This panics when current_pos is pointing end of code
   pub fn next(&mut self) {
     if self.current_pos >= self.code.len() {

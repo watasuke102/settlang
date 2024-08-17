@@ -82,6 +82,7 @@ pub fn char(expect: char) -> Expecter {
 }
 pub fn str(expect: &'static str) -> Expecter {
   Box::new(move |code| {
+    let initial_pos = code.pos();
     let mut matched = String::new();
     let mut expect_input = expect.chars();
     loop {
@@ -96,6 +97,7 @@ pub fn str(expect: &'static str) -> Expecter {
         if matched.len() == 0 {
           return Err(ParseError::NoMatch);
         } else {
+          code.unwind(initial_pos);
           return Err(ParseError::PartialMatch(matched));
         }
       }
@@ -167,6 +169,7 @@ mod test {
         Err(err) => {
           let expect_err = expect.expect_err("returned Err but expected Ok");
           assert_eq!(err, expect_err, "input: {}", code_str);
+          assert_eq!(code.remaining_code(), code_str.to_string());
         }
       }
     }

@@ -80,23 +80,25 @@ pub enum Expression {
 }
 
 impl Program {
-  pub fn from_statements(original_statements: Vec<tokenizer::Statement>) -> CompileResult<Self> {
+  pub fn from_statements(statements: Vec<tokenizer::Statement>) -> CompileResult<Self> {
     let mut errors = Vec::new();
+    let (mut functions, statements): (Vec<_>, Vec<_>) = statements
+      .into_iter()
+      .partition(|s| matches!(s, tokenizer::Statement::FnDecl(_)));
     let mut uncompiled_functions: Vec<UncompiledFnCarrier> = Vec::new();
 
     let mut fn_idx = 0;
     let mut parent_func: Option<UncompiledFnCarrier> = None;
-    let mut statements: Vec<tokenizer::Statement> = original_statements;
     let mut remaining_func: VecDeque<UncompiledFnCarrier> = VecDeque::new();
     loop {
       let mut appeared: HashMap<String, ()> = HashMap::new();
       // enumerate same level functions like Breadth-First Search
       // ex: fn top(){  fn f0(){}  fn f1(){}  } <- f0 and f1 is same level
       let mut same_level_func = Vec::new();
-      for func in statements.iter().filter_map(|s| match s {
-        tokenizer::Statement::FnDecl(f) => Some(f),
-        _ => None,
-      }) {
+      for func in &functions {
+        let tokenizer::Statement::FnDecl(func) = func else {
+          panic!("Unexpected statement (got: {:?})", func);
+        };
         let func_name = func.name.clone();
         if appeared.get(&func_name).is_some() {
           errors.push(CompileError::DuplicatedDecl);
@@ -136,9 +138,17 @@ impl Program {
         break;
       };
       parent_func = Some(next.clone());
-      statements = next.borrow().code.clone();
+      functions = next
+        .borrow()
+        .code
+        .to_owned()
+        .into_iter()
+        .filter(|s| matches!(s, tokenizer::Statement::FnDecl(_)))
+        .collect();
       uncompiled_functions.push(next);
     }
+
+    // Show result (temporary; for testing)
     uncompiled_functions.sort_by_key(|e| e.borrow().idx);
     for f in &uncompiled_functions {
       fn map_to_strings(m: &HashMap<String, UncompiledFnCarrier>) -> String {

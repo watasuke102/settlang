@@ -1,6 +1,7 @@
 use std::{
-  cell::RefCell,
+  cell::{self, RefCell},
   collections::{HashMap, VecDeque},
+  ops::Deref,
   rc::Rc,
 };
 
@@ -52,11 +53,11 @@ impl UncompiledFunction {
       parent,
     }
   }
-  fn idx_from_accessible_fn_name(&self, name: String) -> Option<usize> {
-    if let Some(f) = self.owning_func.get(&name) {
+  fn idx_from_accessible_fn_name(&self, name: &String) -> Option<usize> {
+    if let Some(f) = self.owning_func.get(name) {
       return Some(f.borrow().idx);
     }
-    if let Some(f) = self.owning_func.get(&name) {
+    if let Some(f) = self.owning_func.get(name) {
       return Some(f.borrow().idx);
     }
     match &self.parent {
@@ -73,7 +74,7 @@ struct Function {
   args:        HashMap<String, Argument>,
   return_type: Option<Type>,
   code:        Vec<Statement>,
-  variables:   HashMap<String, Variable>,
+  variables:   Vec<Variable>,
 }
 
 #[derive(Debug)]
@@ -93,12 +94,99 @@ struct Variable {
 
 #[derive(Debug)]
 enum Statement {
+  ExprStatement(Expression),
   Return(Expression),
 }
 
 #[derive(Debug, PartialEq)]
-pub enum Expression {
-  Constant(i32),
+pub enum ExprCommand {
+  Add,
+  Sub,
+  Mul,
+  Div,
+  PushImm(i32),
+  PushVar(usize),
+  FnCall(usize),
+}
+// express Expressions by stack machine
+#[derive(Debug)]
+struct Expression {
+  // TODO: should have expression type
+  expr_stack: Vec<ExprCommand>,
+}
+impl Expression {
+  fn from_token(
+    token: &tokenizer::Expression,
+    uncompiled: &cell::Ref<UncompiledFunction>,
+    var_idx_map: &HashMap<String, usize>,
+  ) -> CompileResult<Self> {
+    let mut expr_stack = Vec::new();
+    let mut errors = Vec::new();
+
+    // convert lhs and rhs (both are token), push them if no errors occured
+    let mut extract =
+      |lhs: &tokenizer::Expression, rhs: &tokenizer::Expression, push_if_succeed: ExprCommand| {
+        let mut temp_stack = Vec::new();
+        let mut failed = false;
+        for expr in [lhs, rhs] {
+          match Expression::from_token(&expr, uncompiled, var_idx_map) {
+            Ok(mut expr) => {
+              temp_stack.append(&mut expr.expr_stack);
+            }
+            Err(mut err) => {
+              failed = true;
+              errors.append(&mut err);
+            }
+          }
+        }
+        if !failed {
+          expr_stack.append(&mut temp_stack);
+          expr_stack.push(push_if_succeed);
+        }
+      };
+    use tokenizer::Expression::*;
+    match token {
+      Add(lhs, rhs) => extract(lhs.deref(), rhs.deref(), ExprCommand::Add),
+      Sub(lhs, rhs) => extract(lhs.deref(), rhs.deref(), ExprCommand::Sub),
+      Mul(lhs, rhs) => extract(lhs.deref(), rhs.deref(), ExprCommand::Mul),
+      Div(lhs, rhs) => extract(lhs.deref(), rhs.deref(), ExprCommand::Div),
+      Constant(v) => expr_stack.push(ExprCommand::PushImm(*v)),
+      Variable(var_name) => match var_idx_map.get(var_name) {
+        Some(var_idx) => expr_stack.push(ExprCommand::PushVar(*var_idx)),
+        None => errors.push(CompileError::UndefinedVariable),
+      },
+      FnCall(fn_name, arguments) => 'fn_call: {
+        let Some(fn_idx) = uncompiled.idx_from_accessible_fn_name(fn_name) else {
+          errors.push(CompileError::UndefinedFunction);
+          break 'fn_call;
+        };
+        let mut failed = false;
+        let mut arguments_expr = arguments
+          .iter()
+          .flat_map(
+            |expr| match Expression::from_token(expr, uncompiled, var_idx_map) {
+              Ok(expr) => expr.expr_stack,
+              Err(mut err) => {
+                failed = true;
+                errors.append(&mut err);
+                vec![]
+              }
+            },
+          )
+          .collect();
+        if !failed {
+          expr_stack.append(&mut arguments_expr);
+          expr_stack.push(ExprCommand::FnCall(fn_idx));
+        }
+      }
+    }
+
+    if errors.len() == 0 {
+      Ok(Expression { expr_stack })
+    } else {
+      Err(errors)
+    }
+  }
 }
 
 impl Program {
@@ -242,11 +330,11 @@ impl Program {
 }
 
 impl Function {
-  fn compile(func: UncompiledFnCarrier) -> CompileResult<Self> {
+  fn compile(uncompiled: UncompiledFnCarrier) -> CompileResult<Self> {
     let mut errors = Vec::new();
-    let func = func.borrow();
+    let uncompiled = uncompiled.borrow();
 
-    let return_type = func.return_type.as_ref().and_then(|t| {
+    let return_type = uncompiled.return_type.as_ref().and_then(|t| {
       Type::try_from(t.clone())
         .or_else(|_| {
           errors.push(CompileError::InvalidType);
@@ -255,30 +343,60 @@ impl Function {
         .ok()
     });
 
-    let mut code: Vec<Statement> = Vec::new();
-    for statement in &func.code {
+    let mut func = Function {
+      idx: uncompiled.idx,
+      name: uncompiled.name.clone(),
+      return_type,
+      ..Function::default()
+    };
+
+    let mut var_idx_map: HashMap<String, usize> = HashMap::new();
+    for statement in &uncompiled.code {
       match statement {
         tokenizer::Statement::FnDecl(_) => continue,
-        tokenizer::Statement::Return(expr) => {
-          let tokenizer::Expression::Constant(retval) = expr else {
-            errors.push(CompileError::NotImplemented);
+        tokenizer::Statement::VarDecl(var) => {
+          let idx = func.variables.len();
+          let Ok(vartype) = Type::try_from(var.vartype.clone()) else {
+            errors.push(CompileError::InvalidType);
             continue;
           };
-          code.push(Statement::Return(Expression::Constant(*retval)));
+          let initial_value =
+            match Expression::from_token(&var.initial_value, &uncompiled, &var_idx_map) {
+              Ok(expr) => expr,
+              Err(mut res) => {
+                errors.append(&mut res);
+                continue;
+              }
+            };
+          func.variables.push(Variable {
+            idx,
+            name: var.name.clone(),
+            vartype,
+            initial_value,
+          });
+          var_idx_map.insert(var.name.clone(), idx);
         }
-        _ => errors.push(CompileError::NotImplemented),
+        tokenizer::Statement::ExprStatement(expr) => {
+          match Expression::from_token(expr, &uncompiled, &var_idx_map) {
+            Ok(expr) => func.code.push(Statement::ExprStatement(expr)),
+            Err(mut res) => errors.append(&mut res),
+          }
+        }
+        tokenizer::Statement::Return(expr) => {
+          let retval = match Expression::from_token(expr, &uncompiled, &var_idx_map) {
+            Ok(expr) => expr,
+            Err(mut res) => {
+              errors.append(&mut res);
+              continue;
+            }
+          };
+          func.code.push(Statement::Return(retval));
+        }
       }
     }
 
     if errors.len() == 0 {
-      Ok(Function {
-        idx: func.idx,
-        name: func.name.clone(),
-        args: HashMap::new(),
-        return_type,
-        code,
-        variables: HashMap::new(),
-      })
+      Ok(func)
     } else {
       Err(errors)
     }

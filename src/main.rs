@@ -75,7 +75,7 @@ fn f1() -> i32 {
 fn f2() -> i32 {
   return 2
 }
-return 3
+return f1() + f2() * 3
 ",
     // nest
     r"
@@ -98,29 +98,38 @@ fn f1() {
     fn f4() -> i32 {}
 }
 ",
-    // // some expressions
-    // r"
-    // fn blank(){}
-    // fn test() {
-    //   -1
-    //   2
-    //   (+3)
-    //   4+11   3-2
-    //   10+1 * 6/3
-    //   let value: i32 = 0
-    // }
-    // fn expr() {
-    //   return
-    //     10+20
-    //     -
-    //     # comment is treated as spaces
-    //     1+3*6/(1+1) - 2
-    // }
-    // #*
-    // fn inside_comment() {
-    // }
-    // *#
-    // ",
+    // variables
+    r"
+fn variables() -> i32 {
+  let a: i32 = 10
+  let b: i32 = 5
+  let c: i64 = 600
+  let d: i64 = 10000
+  let a: i64 = 500 # shadowing
+}
+",
+    // some expressions
+    r"
+fn test() {
+  -1
+  2
+  (+3)
+  4+11   3-2
+  10+1 * 6/3
+  let value: i32 = 0
+}
+fn expr() {
+  return
+    10+20
+    -
+    # comment is treated as spaces
+    1+3*6/(1+1) - 2
+}
+#*
+fn inside_comment() {
+}
+*#
+",
     // // function
     // r"
     // fn add(a: i32, b: i32) -> i32 {
@@ -181,8 +190,8 @@ fn f1() {
     println!("=== compile result");
     let prog = Program::from_statements(statements);
     match prog {
-      Ok(prog) => println!("Succeeded to compile || {:?}", prog),
-      Err(errors) => println!("Failed to compile || {:?}", errors),
+      Ok(prog) => println!("Succeeded to compile || {:#?}", prog),
+      Err(errors) => println!("Failed to compile || {:#?}", errors),
     }
     println!("----------------------------------------------");
   }

@@ -23,5 +23,4 @@ pub enum CompileError {
   InvalidType,
   GlobalVariableWithMain,
   GlobalStatementWithMain,
-  NotImplemented(String),
 }

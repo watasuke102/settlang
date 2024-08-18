@@ -8,6 +8,13 @@ use std::{
 use crate::{error::CompileError, tokenizer};
 
 type CompileResult<T> = Result<T, Vec<CompileError>>;
+fn errors_or<T>(errors: Vec<CompileError>, res: T) -> CompileResult<T> {
+  if errors.len() == 0 {
+    Ok(res)
+  } else {
+    Err(errors)
+  }
+}
 
 #[derive(Debug)]
 pub struct Program {
@@ -160,6 +167,7 @@ impl Expression {
           errors.push(CompileError::UndefinedFunction);
           break 'fn_call;
         };
+        // TODO: argument validation (number, type, etc?)
         let mut failed = false;
         let mut arguments_expr = arguments
           .iter()
@@ -181,12 +189,50 @@ impl Expression {
       }
     }
 
-    if errors.len() == 0 {
-      Ok(Expression { expr_stack })
-    } else {
-      Err(errors)
-    }
+    errors_or(errors, Expression { expr_stack })
   }
+}
+
+/// enumerate same level functions like Breadth-First Search
+/// ex: fn top(){  fn f0(){}  fn f1(){}  } <- f0 and f1 is same level
+fn enumerate_same_level_functions(
+  fn_idx: &mut usize,
+  parent_func: &Option<UncompiledFnCarrier>,
+  functions: &Vec<tokenizer::Statement>,
+) -> CompileResult<Vec<UncompiledFnCarrier>> {
+  let mut errors = Vec::new();
+  let mut appeared: HashMap<String, ()> = HashMap::new();
+  let mut same_level_func = Vec::new();
+
+  for func in functions {
+    let tokenizer::Statement::FnDecl(func) = func else {
+      panic!("Unexpected statement (got: {:?})", func);
+    };
+    let func_name = func.name.clone();
+    if appeared.get(&func_name).is_some() {
+      errors.push(CompileError::DuplicatedDecl);
+      continue;
+    }
+    appeared.insert(func_name.clone(), ());
+    let func = Rc::new(RefCell::new(UncompiledFunction::new(
+      *fn_idx,
+      func,
+      parent_func.clone(),
+    )));
+    // push parent's owning_func as well
+    {
+      if let Some(ref parent) = parent_func {
+        parent
+          .borrow_mut()
+          .owning_func
+          .insert(func_name.clone(), func.clone());
+      }
+    }
+    same_level_func.push(func);
+    *fn_idx += 1;
+  }
+
+  errors_or(errors, same_level_func)
 }
 
 impl Program {
@@ -201,37 +247,14 @@ impl Program {
     let mut parent_func: Option<UncompiledFnCarrier> = None;
     let mut remaining_func: VecDeque<UncompiledFnCarrier> = VecDeque::new();
     loop {
-      let mut appeared: HashMap<String, ()> = HashMap::new();
-      // enumerate same level functions like Breadth-First Search
-      // ex: fn top(){  fn f0(){}  fn f1(){}  } <- f0 and f1 is same level
-      let mut same_level_func = Vec::new();
-      for func in &functions {
-        let tokenizer::Statement::FnDecl(func) = func else {
-          panic!("Unexpected statement (got: {:?})", func);
-        };
-        let func_name = func.name.clone();
-        if appeared.get(&func_name).is_some() {
-          errors.push(CompileError::DuplicatedDecl);
-          continue;
-        }
-        appeared.insert(func_name.clone(), ());
-        let func = Rc::new(RefCell::new(UncompiledFunction::new(
-          fn_idx,
-          func,
-          parent_func.clone(),
-        )));
-        {
-          if let Some(ref parent) = parent_func {
-            parent
-              .borrow_mut()
-              .owning_func
-              .insert(func_name.clone(), func.clone());
+      let same_level_func =
+        match enumerate_same_level_functions(&mut fn_idx, &parent_func, &functions) {
+          Ok(res) => res,
+          Err(mut res) => {
+            errors.append(&mut res);
+            return Err(errors);
           }
-        }
-        same_level_func.push(func);
-        fn_idx += 1;
-      }
-
+        };
       let same_level_func_map: HashMap<String, UncompiledFnCarrier> = same_level_func
         .iter()
         .map(|f| {
@@ -279,7 +302,7 @@ impl Program {
       );
     }
 
-    // compile UncompiledFunctions
+    // wrap entire code by function `main() -> void` if main() is not defined
     let should_wrap_virtual_main = !uncompiled_functions
       .iter()
       .any(|f| f.borrow().name == "main");
@@ -303,6 +326,8 @@ impl Program {
       };
       uncompiled_functions.push(Rc::new(RefCell::new(main)));
     }
+
+    // compile UncompiledFunctions
     let mut compiled_functions = Vec::new();
     for func in uncompiled_functions.into_iter() {
       match Function::compile(func) {
@@ -317,15 +342,13 @@ impl Program {
         Err(mut res) => errors.append(&mut res),
       }
     }
-    println!(">>> functions: {:#?}", compiled_functions);
 
-    if errors.len() == 0 {
-      Ok(Program {
+    errors_or(
+      errors,
+      Program {
         functions: compiled_functions,
-      })
-    } else {
-      Err(errors)
-    }
+      },
+    )
   }
 }
 
@@ -395,11 +418,7 @@ impl Function {
       }
     }
 
-    if errors.len() == 0 {
-      Ok(func)
-    } else {
-      Err(errors)
-    }
+    errors_or(errors, func)
   }
 }
 

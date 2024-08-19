@@ -67,7 +67,7 @@ impl SourceCode {
       format!(
         "  {} | {}^",
         " ".repeat(line_str.len()),
-        " ".repeat(if pos.cols > 2 { pos.cols - 2 } else { 0 })
+        " ".repeat(if pos.cols > 1 { pos.cols - 1 } else { 0 })
       ),
     ]
     .join("\n")

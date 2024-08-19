@@ -51,12 +51,26 @@ impl SourceCode {
   pub fn substr(&self, begin: usize, end: usize) -> String {
     String::from_iter(&self.code[begin..end])
   }
-  /// line: 1-indexed
-  pub fn line(&self, line: usize) -> Option<String> {
-    String::from_iter(self.code.iter())
-      .lines()
-      .nth(line - 1)
-      .map(|l| l.to_string())
+  /// show specified lines of code with '^' mark pointing specified cols
+  pub fn pointed_string(&self, pos: &Position) -> String {
+    let line_str = pos.lines.to_string();
+    [
+      format!(
+        "  {} | {}",
+        line_str,
+        String::from_iter(self.code.iter())
+          .lines()
+          .nth(pos.lines - 1)
+          .map(|l| l.to_string())
+          .unwrap_or_default()
+      ),
+      format!(
+        "  {} | {}^",
+        " ".repeat(line_str.len()),
+        " ".repeat(pos.cols - 2)
+      ),
+    ]
+    .join("\n")
   }
   /// return current position as lines and rows (1-indexed!)
   pub fn lines_and_cols(&self) -> Position {

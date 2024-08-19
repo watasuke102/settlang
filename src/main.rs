@@ -155,6 +155,7 @@ return 0
 ",
     "fn main(){}let x:i32 = 0",
   ] {
+    println!("----------------------------------------------");
     // basically above examples start with '\n'
     // so print `input{}`, not `input\n{}`
     println!("=== input{}", code);
@@ -176,17 +177,11 @@ return 0
       }
       Err(e) => {
         let error_pos = code.lines_and_cols();
-        let line_str = error_pos.lines.to_string();
-        println!("[error] {} -> {:?}", error_pos, e);
         println!(
-          "  {} | {}",
-          line_str,
-          code.line(error_pos.lines).unwrap_or_default()
-        );
-        println!(
-          "  {} | {}^",
-          " ".repeat(line_str.len()),
-          " ".repeat(error_pos.cols - 2)
+          "[error] {} -> {:?}\n{}",
+          error_pos,
+          e,
+          code.pointed_string(&error_pos)
         );
         continue;
       }
@@ -198,6 +193,5 @@ return 0
       Ok(prog) => println!("Succeeded to compile || {:#?}", prog),
       Err(errors) => println!("Failed to compile || {:#?}", errors),
     }
-    println!("----------------------------------------------");
   }
 }

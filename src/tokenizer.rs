@@ -3,7 +3,7 @@ use std::vec;
 use crate::{
   error::{ParseError, TokenizeError},
   parser::*,
-  source_code::SourceCode,
+  source_code::{self, SourceCode},
 };
 type TokenizeResult<'s, T> = Result<T, TokenizeError>;
 
@@ -141,8 +141,8 @@ fn expect_fn_declaration(code: &mut SourceCode) -> TokenizeResult<Function> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expression {
   Constant(i32),
-  Variable(String),
-  FnCall(String, Vec<Expression>),
+  Variable(String, source_code::Position),
+  FnCall(String, Vec<Expression>, source_code::Position),
   Add(Box<Expression>, Box<Expression>),
   Sub(Box<Expression>, Box<Expression>),
   Mul(Box<Expression>, Box<Expression>),
@@ -209,10 +209,11 @@ fn expect_expression(code: &mut SourceCode) -> TokenizeResult<Expression> {
       Err(e) => return Err(e),
     }
 
+    let use_pos = code.lines_and_cols();
     let ident = expect_identifier(code)?;
     // check whether <ident> is function
     let Ok(()) = char('(')(code.skip_space()) else {
-      return Ok(Expression::Variable(ident));
+      return Ok(Expression::Variable(ident, use_pos));
     };
 
     let mut args = Vec::new();
@@ -230,7 +231,7 @@ fn expect_expression(code: &mut SourceCode) -> TokenizeResult<Expression> {
     }
     char(')')(code.skip_space()).or(Err(TokenizeError::UnclosedDelimiter))?;
 
-    return Ok(Expression::FnCall(ident, args));
+    return Ok(Expression::FnCall(ident, args, use_pos));
 
     fn expect_constant(code: &mut SourceCode) -> TokenizeResult<i32> {
       let mut sign = 1;
@@ -417,7 +418,13 @@ mod test {
         code, res
       );
     };
-    assert_eq!(*var, Expression::Variable(varname));
+    let Expression::Variable(parsed_varname, _) = var else {
+      panic!(
+        "right-hand side of `{}` was not parsed as variable (result: {:?})",
+        code, var
+      );
+    };
+    assert_eq!(parsed_varname, varname);
   }
   #[test]
   fn expect_expression_succeed_to_parse_fncall() {
@@ -429,7 +436,7 @@ mod test {
       let Ok(res) = expect_expression(&mut SourceCode::new(code)) else {
         panic!("failed to parse code `{}` as an expression", code);
       };
-      let Expression::FnCall(parsed_name, parsed_args) = res else {
+      let Expression::FnCall(parsed_name, parsed_args, _) = res else {
         panic!(
           "code `{}` is expected to be parsed as FnCall but actually {:?}",
           code, res

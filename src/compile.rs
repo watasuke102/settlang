@@ -305,23 +305,22 @@ impl Program {
         parent:          None,
       };
       uncompiled_functions.push(Rc::new(RefCell::new(main)));
+    } else if statements.len() != 0 {
+      errors.push(CompileError::GlobalStatementWithMain);
     }
 
     // compile UncompiledFunctions
-    let mut compiled_functions = Vec::new();
-    for func in uncompiled_functions.into_iter() {
-      match Function::compile(func) {
-        Ok(compiled) => {
-          if compiled.name == "main" && should_wrap_virtual_main {
-            if compiled.variables.len() != 0 {
-              errors.push(CompileError::GlobalVariableWithMain);
-            }
-          }
-          compiled_functions.push(compiled);
+    let compiled_functions = uncompiled_functions
+      .into_iter()
+      .map(Function::compile)
+      .filter_map(|compiled| match compiled {
+        Ok(compiled) => Some(compiled),
+        Err(mut res) => {
+          errors.append(&mut res);
+          None
         }
-        Err(mut res) => errors.append(&mut res),
-      }
-    }
+      })
+      .collect();
 
     errors_or(
       errors,

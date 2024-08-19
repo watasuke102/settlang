@@ -21,6 +21,5 @@ pub enum CompileError {
   UndefinedFunction,
   DuplicatedDecl,
   InvalidType,
-  GlobalVariableWithMain,
   GlobalStatementWithMain,
 }

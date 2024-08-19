@@ -142,14 +142,18 @@ fn variables() -> i32 {
   return a + b*2 + add_2a_b(5, b)
 }
     ",
-    // error 0
+    // errors
     r"
 fn error0( -> i32 {}
 ",
-    // error 1
     r"
 fn error1() 1+1
 ",
+    r"
+fn main() {}
+return 0
+",
+    "fn main(){}let x:i32 = 0",
   ] {
     // basically above examples start with '\n'
     // so print `input{}`, not `input\n{}`

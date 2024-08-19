@@ -10,50 +10,50 @@ mod source_code;
 mod tokenizer;
 
 fn print_statement(statement: &Statement, indent: usize) {
-  let indent_space = "  ".repeat(indent);
-  match statement {
-    Statement::FnDecl(func) => {
-      println!(
-        "{}[declare] fn {}({}){} {{",
-        indent_space,
-        func.name,
-        func
-          .args
-          .iter()
-          .map(|e| format!("{}: {}", e.name, e.vartype))
-          .collect::<Vec<String>>()
-          .join(", "),
-        if func.return_type.is_some() {
-          format!(" -> {}", func.return_type.as_ref().unwrap())
-        } else {
-          "".to_string()
-        },
-      );
-      func
-        .code
-        .iter()
-        .for_each(|s| print_statement(&s, indent + 1));
-      println!("{}}}", indent_space);
-    }
-    Statement::VarDecl(var) => println!(
-      "{}[variable] {}: type={:?}, initial_value={:?}",
-      indent_space, var.name, var.vartype, var.initial_value
-    ),
-    Statement::ExprStatement(expr) => {
-      println!(
-        "{}[expr] {:?} (eval: {:?})",
-        indent_space,
-        expr,
-        expr.eval()
-      )
-    }
-    Statement::Return(retval) => println!(
-      "{}[return] retval: {:?} (eval: {:?})",
-      indent_space,
-      retval,
-      retval.eval()
-    ),
-  }
+  // let indent_space = "  ".repeat(indent);
+  // match statement {
+  //   Statement::FnDecl(func) => {
+  //     println!(
+  //       "{}[declare] fn {}({}){} {{",
+  //       indent_space,
+  //       func.name,
+  //       func
+  //         .args
+  //         .iter()
+  //         .map(|e| format!("{}: {}", e.name, e.vartype))
+  //         .collect::<Vec<String>>()
+  //         .join(", "),
+  //       if func.return_type.is_some() {
+  //         format!(" -> {}", func.return_type.as_ref().unwrap())
+  //       } else {
+  //         "".to_string()
+  //       },
+  //     );
+  //     func
+  //       .code
+  //       .iter()
+  //       .for_each(|s| print_statement(&s, indent + 1));
+  //     println!("{}}}", indent_space);
+  //   }
+  //   Statement::VarDecl(var) => println!(
+  //     "{}[variable] {}: type={:?}, initial_value={:?}",
+  //     indent_space, var.name, var.vartype, var.initial_value
+  //   ),
+  //   Statement::ExprStatement(expr) => {
+  //     println!(
+  //       "{}[expr] {:?} (eval: {:?})",
+  //       indent_space,
+  //       expr,
+  //       expr.eval()
+  //     )
+  //   }
+  //   Statement::Return(retval) => println!(
+  //     "{}[return] retval: {:?} (eval: {:?})",
+  //     indent_space,
+  //     retval,
+  //     retval.eval()
+  //   ),
+  // }
 }
 
 fn main() {
@@ -130,25 +130,26 @@ fn inside_comment() {
 }
 *#
 ",
-    // // function
-    // r"
-    // fn add(a: i32, b: i32) -> i32 {
-    //   return a+b
-    // }
-    // fn variables() - > i32 {
-    //   let a: i32 = 10
-    //   let b: i32 = 5
-    //   return a + b*2 + add(b, 5)
-    // }
-    // ",
-    // // error 0
-    // r"
-    // fn error0( -> i32 {}
-    // ",
-    // // error 1
-    // r"
-    // fn error1() 1+1
-    // ",
+    // function
+    r"
+fn add_2a_b(a: i32, b: i32) -> i32 {
+  let a: i32 = a*2 # shadowing
+  return a+b
+}
+fn variables() -> i32 {
+  let a: i32 = 10
+  let b: i32 = 5
+  return a + b*2 + add_2a_b(5, b)
+}
+    ",
+    // error 0
+    r"
+fn error0( -> i32 {}
+",
+    // error 1
+    r"
+fn error1() 1+1
+",
   ] {
     // basically above examples start with '\n'
     // so print `input{}`, not `input\n{}`

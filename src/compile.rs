@@ -21,7 +21,7 @@ pub struct Program {
   functions: Vec<Function>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 enum Type {
   I32,
   I64,
@@ -64,7 +64,7 @@ impl UncompiledFunction {
     if let Some(f) = self.owning_func.get(name) {
       return Some(f.borrow().idx);
     }
-    if let Some(f) = self.owning_func.get(name) {
+    if let Some(f) = self.same_level_func.get(name) {
       return Some(f.borrow().idx);
     }
     match &self.parent {
@@ -78,17 +78,10 @@ type UncompiledFnCarrier = Rc<RefCell<UncompiledFunction>>;
 struct Function {
   idx:         usize,
   name:        String,
-  args:        HashMap<String, Argument>,
+  args:        Vec<Type>,
   return_type: Option<Type>,
   code:        Vec<Statement>,
   variables:   Vec<Variable>,
-}
-
-#[derive(Debug)]
-struct Argument {
-  idx:     usize,
-  name:    String,
-  vartype: Type,
 }
 
 #[derive(Debug)]
@@ -114,14 +107,20 @@ pub enum ExprCommand {
   PushImm(i32),
   PushVar(usize),
   FnCall(usize),
+  GetInitialValueFromArg(usize), // index of arguments
 }
 // express Expressions by stack machine
 #[derive(Debug)]
 struct Expression {
-  // TODO: should have expression type
+  // TODO: should have expression type (Option<Type>)
   expr_stack: Vec<ExprCommand>,
 }
 impl Expression {
+  fn arg(idx: usize) -> Self {
+    Expression {
+      expr_stack: vec![ExprCommand::GetInitialValueFromArg(idx)],
+    }
+  }
   fn from_token(
     token: &tokenizer::Expression,
     uncompiled: &cell::Ref<UncompiledFunction>,
@@ -365,20 +364,31 @@ impl Function {
         })
         .ok()
     });
-
     let mut func = Function {
       idx: uncompiled.idx,
       name: uncompiled.name.clone(),
       return_type,
       ..Function::default()
     };
-
     let mut var_idx_map: HashMap<String, usize> = HashMap::new();
+    for (i, arg) in uncompiled.args.iter().enumerate() {
+      let Ok(vartype) = Type::try_from(arg.vartype.clone()) else {
+        errors.push(CompileError::InvalidType);
+        continue;
+      };
+      func.args.push(vartype.clone());
+      func.add_variable(
+        arg.name.clone(),
+        vartype,
+        Expression::arg(i),
+        &mut var_idx_map,
+      );
+    }
+
     for statement in &uncompiled.code {
       match statement {
         tokenizer::Statement::FnDecl(_) => continue,
         tokenizer::Statement::VarDecl(var) => {
-          let idx = func.variables.len();
           let Ok(vartype) = Type::try_from(var.vartype.clone()) else {
             errors.push(CompileError::InvalidType);
             continue;
@@ -391,13 +401,7 @@ impl Function {
                 continue;
               }
             };
-          func.variables.push(Variable {
-            idx,
-            name: var.name.clone(),
-            vartype,
-            initial_value,
-          });
-          var_idx_map.insert(var.name.clone(), idx);
+          func.add_variable(var.name.clone(), vartype, initial_value, &mut var_idx_map);
         }
         tokenizer::Statement::ExprStatement(expr) => {
           match Expression::from_token(expr, &uncompiled, &var_idx_map) {
@@ -419,6 +423,22 @@ impl Function {
     }
 
     errors_or(errors, func)
+  }
+  fn add_variable(
+    &mut self,
+    name: String,
+    vartype: Type,
+    initial_value: Expression,
+    var_idx_map: &mut HashMap<String, usize>,
+  ) {
+    let idx = self.variables.len();
+    var_idx_map.insert(name.clone(), idx);
+    self.variables.push(Variable {
+      idx,
+      name,
+      vartype,
+      initial_value,
+    });
   }
 }
 

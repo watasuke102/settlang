@@ -151,9 +151,20 @@ fn error1() 1+1
 ",
     r"
 fn main() {}
+(1)
+(2)
+(3)
+(4)
+(5)
 return 0
 ",
     "fn main(){}let x:i32 = 0",
+    r"
+# fn f() {}  fn f() -> i32 {}
+let x: WrongType = 0
+ call_f()
+return variable
+",
   ] {
     println!("----------------------------------------------");
     // basically above examples start with '\n'
@@ -191,7 +202,49 @@ return 0
     let prog = Program::from_statements(statements);
     match prog {
       Ok(prog) => println!("Succeeded to compile || {:#?}", prog),
-      Err(errors) => println!("Failed to compile || {:#?}", errors),
+      Err(errors) => {
+        for err in &errors {
+          use error::CompileError::*;
+          match err {
+            UndefinedVariable(name, pos) => println!(
+              "[error] {} -> variable `{}` is undefined\n{}",
+              pos,
+              name,
+              code.pointed_string(pos)
+            ),
+            UndefinedFunction(name, pos) => println!(
+              "[error] {} -> function `{}` is undefined\n{}",
+              pos,
+              name,
+              code.pointed_string(pos)
+            ),
+            DuplicatedDecl(name, pos) => println!(
+              "[error] {} -> `{}` is already defined\n{}",
+              pos,
+              name,
+              code.pointed_string(pos)
+            ),
+            InvalidType(name, pos) => println!(
+              "[error] {} -> `{}` is invalid type name\n{}",
+              pos,
+              name,
+              code.pointed_string(pos),
+            ),
+            #[rustfmt::skip]
+            GlobalStatementWithMain(lines) => {
+              println!("[error] Statement(s) found in the outside of main()");
+              println!("        lines: {}",
+                lines
+                  .into_iter()
+                  .map(|line| line.to_string())
+                  .collect::<Vec<String>>()
+                  .join(", ")
+              );
+            }
+          }
+        }
+        println!("Failed to compile; {} error(s)", errors.len());
+      }
     }
   }
 }

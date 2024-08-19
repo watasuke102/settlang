@@ -8,11 +8,21 @@ use crate::{
 type TokenizeResult<'s, T> = Result<T, TokenizeError>;
 
 #[derive(Debug, Clone)]
-pub enum Statement {
+pub enum StatementKind {
   FnDecl(Function),
   VarDecl(Variable),
   ExprStatement(Expression),
   Return(Expression),
+}
+#[derive(Debug, Clone)]
+pub struct Statement {
+  pub kind: StatementKind,
+  pub pos:  source_code::Position,
+}
+#[derive(Debug, Clone)]
+pub struct Type {
+  pub type_ident: String,
+  pub pos:        source_code::Position,
 }
 
 pub fn expect_code(code: &mut SourceCode) -> TokenizeResult<Vec<Statement>> {
@@ -32,23 +42,44 @@ pub fn expect_code(code: &mut SourceCode) -> TokenizeResult<Vec<Statement>> {
 }
 
 fn expect_statement(code: &mut SourceCode) -> TokenizeResult<Statement> {
+  let pos = code.lines_and_cols();
   match expect_return(code) {
-    Ok(res) => return Ok(Statement::Return(res)),
+    Ok(res) => {
+      return Ok(Statement {
+        kind: StatementKind::Return(res),
+        pos,
+      })
+    }
     Err(TokenizeError::NoMatch) => (),
     Err(e) => return Err(e),
   }
   match expect_fn_declaration(code) {
-    Ok(res) => return Ok(Statement::FnDecl(res)),
+    Ok(res) => {
+      return Ok(Statement {
+        kind: StatementKind::FnDecl(res),
+        pos,
+      })
+    }
     Err(TokenizeError::NoMatch) => (),
     Err(e) => return Err(e),
   }
   match expect_var_declaration(code) {
-    Ok(res) => return Ok(Statement::VarDecl(res)),
+    Ok(res) => {
+      return Ok(Statement {
+        kind: StatementKind::VarDecl(res),
+        pos,
+      })
+    }
     Err(TokenizeError::NoMatch) => (),
     Err(e) => return Err(e),
   }
   match expect_expression(code) {
-    Ok(res) => return Ok(Statement::ExprStatement(res)),
+    Ok(res) => {
+      return Ok(Statement {
+        kind: StatementKind::ExprStatement(res),
+        pos,
+      })
+    }
     Err(TokenizeError::NoMatch) => (),
     Err(e) => return Err(e),
   }
@@ -64,7 +95,7 @@ fn expect_return(code: &mut SourceCode) -> TokenizeResult<Expression> {
 #[derive(Debug, Clone)]
 pub struct Variable {
   pub name:          String,
-  pub vartype:       String,
+  pub vartype:       Type,
   pub initial_value: Expression,
 }
 fn expect_var_declaration(code: &mut SourceCode) -> TokenizeResult<Variable> {
@@ -78,28 +109,32 @@ fn expect_var_declaration(code: &mut SourceCode) -> TokenizeResult<Variable> {
     initial_value,
   })
 }
-/// (variable name, type name)
-fn expect_var_spec(code: &mut SourceCode) -> TokenizeResult<(String, String)> {
+/// (variable name, type)
+fn expect_var_spec(code: &mut SourceCode) -> TokenizeResult<(String, Type)> {
   let name = expect_identifier(code)?;
   char(':')(code.skip_space()).or(Err(TokenizeError::Expected(": <type>")))?;
-  let type_ident = expect_identifier(code.skip_space()).or(Err(TokenizeError::ExpectedType))?;
-  Ok((name, type_ident))
+  code.skip_space();
+  let pos = code.lines_and_cols();
+  let type_ident = expect_identifier(code).or(Err(TokenizeError::ExpectedType))?;
+  Ok((name, Type { type_ident, pos }))
 }
 
 #[derive(Debug, Clone)]
 pub struct Function {
-  pub name:        String,
-  pub args:        Vec<Argument>,
-  pub return_type: Option<String>,
-  pub code:        Vec<Statement>,
+  pub name:         String,
+  pub args:         Vec<Argument>,
+  pub return_type:  Option<Type>,
+  pub code:         Vec<Statement>,
+  pub declared_pos: source_code::Position,
 }
 #[derive(Debug, Clone)]
 pub struct Argument {
   pub name:    String,
-  pub vartype: String,
+  pub vartype: Type,
 }
 fn expect_fn_declaration(code: &mut SourceCode) -> TokenizeResult<Function> {
   seq(vec![str("fn"), mul(space())])(code.skip_space()).or(Err(TokenizeError::NoMatch))?;
+  let declared_pos = code.lines_and_cols();
   let name = expect_identifier(code)?;
   char('(')(code.skip_space()).or(Err(TokenizeError::Expected("(<arguments>?)")))?;
   let mut args = Vec::new();
@@ -119,8 +154,10 @@ fn expect_fn_declaration(code: &mut SourceCode) -> TokenizeResult<Function> {
 
   let return_type = match str("->")(code.skip_space()) {
     Ok(()) => {
-      let type_ident = expect_identifier(code.skip_space()).or(Err(TokenizeError::ExpectedType))?;
-      Some(type_ident)
+      code.skip_space();
+      let pos = code.lines_and_cols();
+      let type_ident = expect_identifier(code).or(Err(TokenizeError::ExpectedType))?;
+      Some(Type { type_ident, pos })
     }
     Err(ParseError::PartialMatch(_)) => return Err(TokenizeError::Expected("-> <type>")),
     Err(_) => None,
@@ -135,6 +172,7 @@ fn expect_fn_declaration(code: &mut SourceCode) -> TokenizeResult<Function> {
     args,
     return_type,
     code: fn_code,
+    declared_pos,
   })
 }
 
@@ -292,7 +330,7 @@ mod test {
         }
       };
       assert_eq!(var.name, varname);
-      assert_eq!(var.vartype, vartype);
+      assert_eq!(var.vartype.type_ident, vartype);
     }
   }
 
@@ -328,8 +366,9 @@ mod test {
       assert_eq!(func.args.len(), 0);
       assert_eq!(func.code.len(), 1);
       assert_eq!(func.code.len(), 1);
-      assert_eq!(func.return_type, Some("i32".to_string()));
-      let Statement::Return(ref expr) = func.code[0] else {
+      assert!(func.return_type.is_some());
+      assert_eq!(func.return_type.unwrap().type_ident, "i32".to_string());
+      let StatementKind::Return(ref expr) = func.code[0].kind else {
         panic!(
           "Statement is wrong; expect: Return, actual: {:?}",
           func.code[0]
@@ -353,7 +392,7 @@ mod test {
       let function = expect_fn_declaration(&mut SourceCode::new(code)).expect(code);
       for i in 0..expected_arg_names.len() {
         assert_eq!(function.args[i].name, expected_arg_names[i]);
-        assert_eq!(function.args[i].vartype, "i32");
+        assert_eq!(function.args[i].vartype.type_ident, "i32");
       }
     }
   }
@@ -418,7 +457,7 @@ mod test {
         code, res
       );
     };
-    let Expression::Variable(parsed_varname, _) = var else {
+    let Expression::Variable(parsed_varname, _) = *var else {
       panic!(
         "right-hand side of `{}` was not parsed as variable (result: {:?})",
         code, var

@@ -19,9 +19,9 @@ pub enum TokenizeError {
 
 #[derive(Debug, PartialEq)]
 pub enum CompileError {
-  UndefinedVariable,
-  UndefinedFunction,
-  DuplicatedDecl,
-  InvalidType,
-  GlobalStatementWithMain,
+  UndefinedVariable(String, source_code::Position),
+  UndefinedFunction(String, source_code::Position),
+  DuplicatedDecl(String, source_code::Position),
+  InvalidType(String, source_code::Position),
+  GlobalStatementWithMain(Vec<usize>),
 }

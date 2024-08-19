@@ -67,7 +67,7 @@ impl SourceCode {
       format!(
         "  {} | {}^",
         " ".repeat(line_str.len()),
-        " ".repeat(pos.cols - 2)
+        " ".repeat(if pos.cols > 2 { pos.cols - 2 } else { 0 })
       ),
     ]
     .join("\n")
@@ -90,7 +90,7 @@ impl SourceCode {
   }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Position {
   pub lines: usize,
   pub cols:  usize,

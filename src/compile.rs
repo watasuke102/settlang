@@ -26,13 +26,13 @@ enum Type {
   I32,
   I64,
 }
-impl TryFrom<String> for Type {
-  type Error = ();
-  fn try_from(s: String) -> Result<Self, Self::Error> {
-    match s.as_str() {
+impl TryFrom<tokenizer::Type> for Type {
+  type Error = CompileError;
+  fn try_from(s: tokenizer::Type) -> Result<Self, Self::Error> {
+    match s.type_ident.as_str() {
       "i32" => Ok(Type::I32),
       "i64" => Ok(Type::I64),
-      _ => Err(()),
+      _ => Err(CompileError::InvalidType(s.type_ident, s.pos)),
     }
   }
 }
@@ -41,7 +41,7 @@ struct UncompiledFunction {
   idx:             usize,
   name:            String,
   args:            Vec<tokenizer::Argument>,
-  return_type:     Option<String>,
+  return_type:     Option<tokenizer::Type>,
   code:            Vec<tokenizer::Statement>,
   same_level_func: HashMap<String, UncompiledFnCarrier>,
   owning_func:     HashMap<String, UncompiledFnCarrier>,
@@ -157,13 +157,19 @@ impl Expression {
       Mul(lhs, rhs) => extract(lhs.deref(), rhs.deref(), ExprCommand::Mul),
       Div(lhs, rhs) => extract(lhs.deref(), rhs.deref(), ExprCommand::Div),
       Constant(v) => expr_stack.push(ExprCommand::PushImm(*v)),
-      Variable(var_name) => match var_idx_map.get(var_name) {
+      Variable(var_name, pos) => match var_idx_map.get(var_name) {
         Some(var_idx) => expr_stack.push(ExprCommand::PushVar(*var_idx)),
-        None => errors.push(CompileError::UndefinedVariable),
+        None => errors.push(CompileError::UndefinedVariable(
+          var_name.clone(),
+          pos.clone(),
+        )),
       },
-      FnCall(fn_name, arguments) => 'fn_call: {
+      FnCall(fn_name, arguments, pos) => 'fn_call: {
         let Some(fn_idx) = uncompiled.idx_from_accessible_fn_name(fn_name) else {
-          errors.push(CompileError::UndefinedFunction);
+          errors.push(CompileError::UndefinedFunction(
+            fn_name.clone(),
+            pos.clone(),
+          ));
           break 'fn_call;
         };
         // TODO: argument validation (number, type, etc?)
@@ -204,12 +210,15 @@ fn enumerate_same_level_functions(
   let mut same_level_func = Vec::new();
 
   for func in functions {
-    let tokenizer::Statement::FnDecl(func) = func else {
+    let tokenizer::StatementKind::FnDecl(ref func) = func.kind else {
       panic!("Unexpected statement (got: {:?})", func);
     };
     let func_name = func.name.clone();
     if appeared.get(&func_name).is_some() {
-      errors.push(CompileError::DuplicatedDecl);
+      errors.push(CompileError::DuplicatedDecl(
+        func_name,
+        func.declared_pos.clone(),
+      ));
       continue;
     }
     appeared.insert(func_name.clone(), ());
@@ -239,7 +248,7 @@ impl Program {
     let mut errors = Vec::new();
     let (mut functions, statements): (Vec<_>, Vec<_>) = statements
       .into_iter()
-      .partition(|s| matches!(s, tokenizer::Statement::FnDecl(_)));
+      .partition(|s| matches!(s.kind, tokenizer::StatementKind::FnDecl(_)));
     let mut uncompiled_functions: Vec<UncompiledFnCarrier> = Vec::new();
 
     let mut fn_idx = 0;
@@ -275,7 +284,7 @@ impl Program {
         .code
         .to_owned()
         .into_iter()
-        .filter(|s| matches!(s, tokenizer::Statement::FnDecl(_)))
+        .filter(|s| matches!(s.kind, tokenizer::StatementKind::FnDecl(_)))
         .collect();
       uncompiled_functions.push(next);
     }
@@ -306,7 +315,9 @@ impl Program {
       };
       uncompiled_functions.push(Rc::new(RefCell::new(main)));
     } else if statements.len() != 0 {
-      errors.push(CompileError::GlobalStatementWithMain);
+      errors.push(CompileError::GlobalStatementWithMain(
+        statements.iter().map(|s| s.pos.lines).collect(),
+      ));
     }
 
     // compile UncompiledFunctions
@@ -338,8 +349,8 @@ impl Function {
 
     let return_type = uncompiled.return_type.as_ref().and_then(|t| {
       Type::try_from(t.clone())
-        .or_else(|_| {
-          errors.push(CompileError::InvalidType);
+        .or_else(|e| {
+          errors.push(e);
           Err(())
         })
         .ok()
@@ -352,9 +363,12 @@ impl Function {
     };
     let mut var_idx_map: HashMap<String, usize> = HashMap::new();
     for (i, arg) in uncompiled.args.iter().enumerate() {
-      let Ok(vartype) = Type::try_from(arg.vartype.clone()) else {
-        errors.push(CompileError::InvalidType);
-        continue;
+      let vartype = match Type::try_from(arg.vartype.clone()) {
+        Ok(t) => t,
+        Err(e) => {
+          errors.push(e);
+          continue;
+        }
       };
       func.args.push(vartype.clone());
       func.add_variable(
@@ -366,12 +380,16 @@ impl Function {
     }
 
     for statement in &uncompiled.code {
-      match statement {
-        tokenizer::Statement::FnDecl(_) => continue,
-        tokenizer::Statement::VarDecl(var) => {
-          let Ok(vartype) = Type::try_from(var.vartype.clone()) else {
-            errors.push(CompileError::InvalidType);
-            continue;
+      use tokenizer::StatementKind::*;
+      match &statement.kind {
+        FnDecl(_) => continue,
+        VarDecl(var) => {
+          let vartype = match Type::try_from(var.vartype.clone()) {
+            Ok(t) => t,
+            Err(e) => {
+              errors.push(e);
+              continue;
+            }
           };
           let initial_value =
             match Expression::from_token(&var.initial_value, &uncompiled, &var_idx_map) {
@@ -383,13 +401,11 @@ impl Function {
             };
           func.add_variable(var.name.clone(), vartype, initial_value, &mut var_idx_map);
         }
-        tokenizer::Statement::ExprStatement(expr) => {
-          match Expression::from_token(expr, &uncompiled, &var_idx_map) {
-            Ok(expr) => func.code.push(Statement::ExprStatement(expr)),
-            Err(mut res) => errors.append(&mut res),
-          }
-        }
-        tokenizer::Statement::Return(expr) => {
+        ExprStatement(expr) => match Expression::from_token(expr, &uncompiled, &var_idx_map) {
+          Ok(expr) => func.code.push(Statement::ExprStatement(expr)),
+          Err(mut res) => errors.append(&mut res),
+        },
+        Return(expr) => {
           let retval = match Expression::from_token(expr, &uncompiled, &var_idx_map) {
             Ok(expr) => expr,
             Err(mut res) => {
@@ -429,9 +445,18 @@ mod test {
   use super::*;
   #[test]
   fn convert_type_from_string() {
-    assert_eq!(Type::try_from("i32".to_string()), Ok(Type::I32));
-    assert_eq!(Type::try_from("i64".to_string()), Ok(Type::I64));
-    assert!(Type::try_from("i65535".to_string()).is_err());
+    for (type_ident, expect) in [
+      ("i32", Some(Type::I32)),
+      ("i64", Some(Type::I64)),
+      ("i65535", None),
+    ] {
+      let pos = crate::source_code::Position { lines: 0, cols: 0 };
+      let vartype = tokenizer::Type {
+        type_ident: type_ident.to_string(),
+        pos,
+      };
+      assert_eq!(Type::try_from(vartype).ok(), expect);
+    }
   }
 }
 

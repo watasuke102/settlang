@@ -279,27 +279,8 @@ impl Program {
         .collect();
       uncompiled_functions.push(next);
     }
-
-    // Show result (temporary; for testing)
     uncompiled_functions.sort_by_key(|e| e.borrow().idx);
-    for f in &uncompiled_functions {
-      fn map_to_strings(m: &HashMap<String, UncompiledFnCarrier>) -> String {
-        m.iter()
-          .map(|f| format!("'{}'={}, ", f.0, f.1.borrow().idx))
-          .collect()
-      }
-      let f = f.borrow();
-      println!(
-        "{:2} : '{}', owned = {:<16} samelevel = {:<16}, parent:{:?}",
-        f.idx,
-        f.name,
-        map_to_strings(&f.owning_func),
-        map_to_strings(&f.same_level_func),
-        f.parent
-          .as_ref()
-          .and_then(|f| Some(f.borrow().name.clone())),
-      );
-    }
+    debug_log_uncompiled_functions(&uncompiled_functions);
 
     // wrap entire code by function `main() -> void` if main() is not defined
     let should_wrap_virtual_main = !uncompiled_functions
@@ -422,6 +403,8 @@ impl Function {
       }
     }
 
+    // TODO: check return type and existance of Return statement
+
     errors_or(errors, func)
   }
   fn add_variable(
@@ -450,5 +433,27 @@ mod test {
     assert_eq!(Type::try_from("i32".to_string()), Ok(Type::I32));
     assert_eq!(Type::try_from("i64".to_string()), Ok(Type::I64));
     assert!(Type::try_from("i65535".to_string()).is_err());
+  }
+}
+
+// Show result (temporary; for testing)
+fn debug_log_uncompiled_functions(uncompiled_functions: &Vec<UncompiledFnCarrier>) {
+  for f in uncompiled_functions {
+    fn map_to_strings(m: &HashMap<String, UncompiledFnCarrier>) -> String {
+      m.iter()
+        .map(|f| format!("'{}'={}, ", f.0, f.1.borrow().idx))
+        .collect()
+    }
+    let f = f.borrow();
+    println!(
+      "{:2} : '{}', owned = {:<16} samelevel = {:<16}, parent:{:?}",
+      f.idx,
+      f.name,
+      map_to_strings(&f.owning_func),
+      map_to_strings(&f.same_level_func),
+      f.parent
+        .as_ref()
+        .and_then(|f| Some(f.borrow().name.clone())),
+    );
   }
 }

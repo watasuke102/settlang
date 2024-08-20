@@ -132,8 +132,8 @@ fn inside_comment() {
 ",
     // function
     r"
-fn add_2a_b(a: i32, b: i32) -> i32 {
-  let a: i32 = a*2 # shadowing
+fn add_2a_b(a: i32, b: i32) -> i64 {
+  let a: i64 = a*2 # shadowing
   return a+b
 }
 fn variables() -> i32 {
@@ -160,6 +160,10 @@ return 0
 ",
     "fn main(){}let x:i32 = 0",
     r"
+fn no_return_type_but_has_return() { return 0 }
+fn voidfunc(){}
+voidfunc() # ok
+voidfunc() + 1 # ??
 # fn f() {}  fn f() -> i32 {}
 let x: WrongType = 0
  call_f()
@@ -224,12 +228,14 @@ return variable
               name,
               code.pointed_string(pos)
             ),
+            // FIXME: cannot print error line
             InvalidType(name, pos) => println!(
               "[error] {} -> `{}` is invalid type name\n{}",
               pos,
               name,
               code.pointed_string(pos),
             ),
+            InvalidCast(from, to) => println!("[error] cannot cast from {:?} to {:?}", from, to),
             #[rustfmt::skip]
             GlobalStatementWithMain(lines) => {
               println!("[error] Statement(s) found in the outside of main()");

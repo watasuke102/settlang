@@ -21,10 +21,28 @@ pub struct Program {
   functions: Vec<Function>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-enum Type {
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum Type {
+  Void,
+  #[default]
   I32,
   I64,
+}
+impl Type {
+  fn cast(a: &Self, b: &Self) -> Option<Self> {
+    if a == &Self::Void || b == &Self::Void {
+      return None;
+    }
+    if (a == &Self::I32 && b == &Self::I64) // _
+     || (a == &Self::I64 && b == &Self::I32)
+    {
+      return Some(Self::I64);
+    }
+    if a == b {
+      return Some(a.clone());
+    }
+    None
+  }
 }
 impl TryFrom<tokenizer::Type> for Type {
   type Error = CompileError;
@@ -37,38 +55,70 @@ impl TryFrom<tokenizer::Type> for Type {
   }
 }
 
+struct Argument {
+  name:    String,
+  vartype: Type,
+}
 struct UncompiledFunction {
   idx:             usize,
   name:            String,
-  args:            Vec<tokenizer::Argument>,
-  return_type:     Option<tokenizer::Type>,
+  args:            Vec<Argument>,
+  return_type:     Type,
   code:            Vec<tokenizer::Statement>,
   same_level_func: HashMap<String, UncompiledFnCarrier>,
   owning_func:     HashMap<String, UncompiledFnCarrier>,
   parent:          Option<UncompiledFnCarrier>,
 }
 impl UncompiledFunction {
-  fn new(idx: usize, token: &tokenizer::Function, parent: Option<UncompiledFnCarrier>) -> Self {
-    UncompiledFunction {
-      idx,
-      name: token.name.clone(),
-      args: token.args.clone(),
-      return_type: token.return_type.clone(),
-      code: token.code.clone(),
-      same_level_func: HashMap::new(),
-      owning_func: HashMap::new(),
-      parent,
-    }
+  fn new(
+    idx: usize,
+    token: &tokenizer::Function,
+    parent: Option<UncompiledFnCarrier>,
+  ) -> CompileResult<Self> {
+    let mut errors = Vec::new();
+    let return_type = token
+      .return_type
+      .as_ref()
+      .and_then(|t| Type::try_from(t.clone()).map_err(|e| errors.push(e)).ok())
+      .unwrap_or(Type::Void);
+
+    let args = token
+      .args
+      .iter()
+      .filter_map(|arg| match Type::try_from(arg.vartype.clone()) {
+        Ok(vartype) => Some(Argument {
+          name: arg.name.clone(),
+          vartype,
+        }),
+        Err(e) => {
+          errors.push(e);
+          None
+        }
+      })
+      .collect();
+    errors_or(
+      errors,
+      UncompiledFunction {
+        idx,
+        name: token.name.clone(),
+        args,
+        return_type,
+        code: token.code.clone(),
+        same_level_func: HashMap::new(),
+        owning_func: HashMap::new(),
+        parent,
+      },
+    )
   }
-  fn idx_from_accessible_fn_name(&self, name: &String) -> Option<usize> {
+  fn get_accessible_fn_by_name(&self, name: &String) -> Option<UncompiledFnCarrier> {
     if let Some(f) = self.owning_func.get(name) {
-      return Some(f.borrow().idx);
+      return Some(f.clone());
     }
     if let Some(f) = self.same_level_func.get(name) {
-      return Some(f.borrow().idx);
+      return Some(f.clone());
     }
     match &self.parent {
-      Some(parent) => parent.borrow().idx_from_accessible_fn_name(name),
+      Some(parent) => parent.borrow().get_accessible_fn_by_name(name),
       None => None,
     }
   }
@@ -79,12 +129,12 @@ struct Function {
   idx:         usize,
   name:        String,
   args:        Vec<Type>,
-  return_type: Option<Type>,
+  return_type: Type,
   code:        Vec<Statement>,
   variables:   Vec<Variable>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Variable {
   idx:           usize,
   name:          String,
@@ -98,57 +148,81 @@ enum Statement {
   Return(Expression),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ExprCommand {
   Add,
   Sub,
   Mul,
   Div,
+  Cast(Type, Type), // from, to
   PushImm(i32),
   PushVar(usize),
   FnCall(usize),
   GetInitialValueFromArg(usize), // index of arguments
 }
 // express Expressions by stack machine
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Expression {
-  // TODO: should have expression type (Option<Type>)
-  expr_stack: Vec<ExprCommand>,
+  expr_stack:  Vec<ExprCommand>,
+  result_type: Type,
 }
 impl Expression {
-  fn arg(idx: usize) -> Self {
+  fn arg(idx: usize, result_type: Type) -> Self {
     Expression {
       expr_stack: vec![ExprCommand::GetInitialValueFromArg(idx)],
+      result_type,
     }
   }
   fn from_token(
     token: &tokenizer::Expression,
     uncompiled: &cell::Ref<UncompiledFunction>,
-    var_idx_map: &HashMap<String, usize>,
+    var_in_scope: &HashMap<String, Variable>,
   ) -> CompileResult<Self> {
     let mut expr_stack = Vec::new();
     let mut errors = Vec::new();
+    let mut result_type = Type::I32;
 
     // convert lhs and rhs (both are token), push them if no errors occured
     let mut extract =
       |lhs: &tokenizer::Expression, rhs: &tokenizer::Expression, push_if_succeed: ExprCommand| {
-        let mut temp_stack = Vec::new();
-        let mut failed = false;
-        for expr in [lhs, rhs] {
-          match Expression::from_token(&expr, uncompiled, var_idx_map) {
-            Ok(mut expr) => {
-              temp_stack.append(&mut expr.expr_stack);
-            }
-            Err(mut err) => {
-              failed = true;
-              errors.append(&mut err);
-            }
+        let lhs = Expression::from_token(&lhs, uncompiled, var_in_scope).or_else(|mut res| {
+          errors.append(&mut res);
+          Err(())
+        });
+        let rhs = Expression::from_token(&rhs, uncompiled, var_in_scope).or_else(|mut res| {
+          errors.append(&mut res);
+          Err(())
+        });
+        let (Ok(mut lhs), Ok(mut rhs)) = (lhs, rhs) else {
+          return;
+        };
+        match Type::cast(&lhs.result_type, &rhs.result_type) {
+          Some(t) => result_type = t,
+          None => {
+            errors.push(CompileError::InvalidCast(
+              lhs.result_type.clone(),
+              rhs.result_type.clone(),
+            ));
+            return;
           }
         }
-        if !failed {
-          expr_stack.append(&mut temp_stack);
-          expr_stack.push(push_if_succeed);
+        // lhs: push expr and cast if type does not match
+        expr_stack.append(&mut lhs.expr_stack);
+        if lhs.result_type != result_type {
+          expr_stack.push(ExprCommand::Cast(
+            lhs.result_type.clone(),
+            result_type.clone(),
+          ));
         }
+        // rhs: push expr and cast if type does not match
+        expr_stack.append(&mut rhs.expr_stack);
+        if rhs.result_type != result_type {
+          expr_stack.push(ExprCommand::Cast(
+            rhs.result_type.clone(),
+            result_type.clone(),
+          ));
+        }
+        expr_stack.push(push_if_succeed);
       };
     use tokenizer::Expression::*;
     match token {
@@ -156,28 +230,35 @@ impl Expression {
       Sub(lhs, rhs) => extract(lhs.deref(), rhs.deref(), ExprCommand::Sub),
       Mul(lhs, rhs) => extract(lhs.deref(), rhs.deref(), ExprCommand::Mul),
       Div(lhs, rhs) => extract(lhs.deref(), rhs.deref(), ExprCommand::Div),
-      Constant(v) => expr_stack.push(ExprCommand::PushImm(*v)),
-      Variable(var_name, pos) => match var_idx_map.get(var_name) {
-        Some(var_idx) => expr_stack.push(ExprCommand::PushVar(*var_idx)),
+      Constant(v) => {
+        result_type = Type::I32;
+        expr_stack.push(ExprCommand::PushImm(*v));
+      }
+      Variable(var_name, pos) => match var_in_scope.get(var_name) {
+        Some(var) => {
+          expr_stack.push(ExprCommand::PushVar(var.idx));
+          result_type = var.vartype.clone();
+        }
         None => errors.push(CompileError::UndefinedVariable(
           var_name.clone(),
           pos.clone(),
         )),
       },
       FnCall(fn_name, arguments, pos) => 'fn_call: {
-        let Some(fn_idx) = uncompiled.idx_from_accessible_fn_name(fn_name) else {
+        let Some(called_fn) = uncompiled.get_accessible_fn_by_name(fn_name) else {
           errors.push(CompileError::UndefinedFunction(
             fn_name.clone(),
             pos.clone(),
           ));
           break 'fn_call;
         };
+        let called_fn = called_fn.borrow();
         // TODO: argument validation (number, type, etc?)
         let mut failed = false;
         let mut arguments_expr = arguments
           .iter()
           .flat_map(
-            |expr| match Expression::from_token(expr, uncompiled, var_idx_map) {
+            |expr| match Expression::from_token(expr, uncompiled, var_in_scope) {
               Ok(expr) => expr.expr_stack,
               Err(mut err) => {
                 failed = true;
@@ -189,12 +270,19 @@ impl Expression {
           .collect();
         if !failed {
           expr_stack.append(&mut arguments_expr);
-          expr_stack.push(ExprCommand::FnCall(fn_idx));
+          expr_stack.push(ExprCommand::FnCall(called_fn.idx));
+          result_type = called_fn.return_type.clone();
         }
       }
     }
 
-    errors_or(errors, Expression { expr_stack })
+    errors_or(
+      errors,
+      Expression {
+        expr_stack,
+        result_type,
+      },
+    )
   }
 }
 
@@ -222,22 +310,22 @@ fn enumerate_same_level_functions(
       continue;
     }
     appeared.insert(func_name.clone(), ());
-    let func = Rc::new(RefCell::new(UncompiledFunction::new(
-      *fn_idx,
-      func,
-      parent_func.clone(),
-    )));
-    // push parent's owning_func as well
-    {
-      if let Some(ref parent) = parent_func {
-        parent
-          .borrow_mut()
-          .owning_func
-          .insert(func_name.clone(), func.clone());
+    // let func =
+    match UncompiledFunction::new(*fn_idx, func, parent_func.clone()) {
+      Ok(func) => {
+        let func = Rc::new(RefCell::new(func));
+        // push parent's owning_func as well
+        if let Some(ref parent) = parent_func {
+          parent
+            .borrow_mut()
+            .owning_func
+            .insert(func_name.clone(), func.clone());
+        }
+        same_level_func.push(func);
+        *fn_idx += 1;
       }
+      Err(mut e) => errors.append(&mut e),
     }
-    same_level_func.push(func);
-    *fn_idx += 1;
   }
 
   errors_or(errors, same_level_func)
@@ -300,7 +388,7 @@ impl Program {
         idx:             uncompiled_functions.len(),
         name:            String::from("main"),
         args:            vec![],
-        return_type:     None,
+        return_type:     Type::Void,
         code:            statements,
         same_level_func: HashMap::new(),
         owning_func:     uncompiled_functions
@@ -347,35 +435,24 @@ impl Function {
     let mut errors = Vec::new();
     let uncompiled = uncompiled.borrow();
 
-    let return_type = uncompiled.return_type.as_ref().and_then(|t| {
-      Type::try_from(t.clone())
-        .or_else(|e| {
-          errors.push(e);
-          Err(())
-        })
-        .ok()
-    });
     let mut func = Function {
       idx: uncompiled.idx,
       name: uncompiled.name.clone(),
-      return_type,
+      args: uncompiled
+        .args
+        .iter()
+        .map(|arg| arg.vartype.clone())
+        .collect(),
+      return_type: uncompiled.return_type.clone(),
       ..Function::default()
     };
-    let mut var_idx_map: HashMap<String, usize> = HashMap::new();
+    let mut var_in_scope: HashMap<String, Variable> = HashMap::new();
     for (i, arg) in uncompiled.args.iter().enumerate() {
-      let vartype = match Type::try_from(arg.vartype.clone()) {
-        Ok(t) => t,
-        Err(e) => {
-          errors.push(e);
-          continue;
-        }
-      };
-      func.args.push(vartype.clone());
       func.add_variable(
         arg.name.clone(),
-        vartype,
-        Expression::arg(i),
-        &mut var_idx_map,
+        arg.vartype.clone(),
+        Expression::arg(i, arg.vartype.clone()),
+        &mut var_in_scope,
       );
     }
 
@@ -391,34 +468,41 @@ impl Function {
               continue;
             }
           };
-          let initial_value =
-            match Expression::from_token(&var.initial_value, &uncompiled, &var_idx_map) {
+          let mut initial_value =
+            match Expression::from_token(&var.initial_value, &uncompiled, &var_in_scope) {
               Ok(expr) => expr,
               Err(mut res) => {
                 errors.append(&mut res);
                 continue;
               }
             };
-          func.add_variable(var.name.clone(), vartype, initial_value, &mut var_idx_map);
+          if initial_value.result_type != vartype {
+            initial_value.expr_stack.push(ExprCommand::Cast(
+              initial_value.result_type.clone(),
+              vartype.clone(),
+            ));
+          }
+          func.add_variable(var.name.clone(), vartype, initial_value, &mut var_in_scope);
         }
-        ExprStatement(expr) => match Expression::from_token(expr, &uncompiled, &var_idx_map) {
+        ExprStatement(expr) => match Expression::from_token(expr, &uncompiled, &var_in_scope) {
           Ok(expr) => func.code.push(Statement::ExprStatement(expr)),
           Err(mut res) => errors.append(&mut res),
         },
         Return(expr) => {
-          let retval = match Expression::from_token(expr, &uncompiled, &var_idx_map) {
+          let retval = match Expression::from_token(expr, &uncompiled, &var_in_scope) {
             Ok(expr) => expr,
             Err(mut res) => {
               errors.append(&mut res);
               continue;
             }
           };
+          // TODO: type check
           func.code.push(Statement::Return(retval));
         }
       }
     }
 
-    // TODO: check return type and existance of Return statement
+    // TODO: existance of Return statement
 
     errors_or(errors, func)
   }
@@ -427,16 +511,16 @@ impl Function {
     name: String,
     vartype: Type,
     initial_value: Expression,
-    var_idx_map: &mut HashMap<String, usize>,
+    var_in_scope: &mut HashMap<String, Variable>,
   ) {
-    let idx = self.variables.len();
-    var_idx_map.insert(name.clone(), idx);
-    self.variables.push(Variable {
-      idx,
-      name,
+    let var = Variable {
+      idx: self.variables.len(),
+      name: name.clone(),
       vartype,
       initial_value,
-    });
+    };
+    var_in_scope.insert(name, var.clone());
+    self.variables.push(var);
   }
 }
 

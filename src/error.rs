@@ -1,4 +1,4 @@
-use crate::source_code;
+use crate::{compile, source_code};
 
 #[derive(Debug, PartialEq)]
 pub enum ParseError {
@@ -23,5 +23,6 @@ pub enum CompileError {
   UndefinedFunction(String, source_code::Position),
   DuplicatedDecl(String, source_code::Position),
   InvalidType(String, source_code::Position),
+  InvalidCast(compile::Type, compile::Type),
   GlobalStatementWithMain(Vec<usize>),
 }

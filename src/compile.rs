@@ -1,5 +1,5 @@
 use std::{
-  cell::{self, RefCell},
+  cell::RefCell,
   collections::{HashMap, VecDeque},
   ops::Deref,
   rc::Rc,
@@ -59,6 +59,7 @@ struct Argument {
   name:    String,
   vartype: Type,
 }
+#[derive(Default)]
 struct UncompiledFunction {
   idx:             usize,
   name:            String,
@@ -69,6 +70,9 @@ struct UncompiledFunction {
   owning_func:     HashMap<String, UncompiledFnCarrier>,
   parent:          Option<UncompiledFnCarrier>,
 }
+type UncompiledFnCarrier = Rc<RefCell<UncompiledFunction>>;
+type AccessibleFnGetter<'uncompiled_function_lifetime> =
+  Box<dyn Fn(&String) -> Option<UncompiledFnCarrier> + 'uncompiled_function_lifetime>;
 impl UncompiledFunction {
   fn new(
     idx: usize,
@@ -123,7 +127,6 @@ impl UncompiledFunction {
     }
   }
 }
-type UncompiledFnCarrier = Rc<RefCell<UncompiledFunction>>;
 #[derive(Debug, Default)]
 struct Function {
   idx:         usize,
@@ -175,55 +178,58 @@ impl Expression {
   }
   fn from_token(
     token: &tokenizer::Expression,
-    uncompiled: &cell::Ref<UncompiledFunction>,
     var_in_scope: &HashMap<String, Variable>,
+    get_accessible_fn_by_name: &AccessibleFnGetter,
   ) -> CompileResult<Self> {
     let mut expr_stack = Vec::new();
     let mut errors = Vec::new();
     let mut result_type = Type::I32;
 
     // convert lhs and rhs (both are token), push them if no errors occured
-    let mut extract =
-      |lhs: &tokenizer::Expression, rhs: &tokenizer::Expression, push_if_succeed: ExprCommand| {
-        let lhs = Expression::from_token(&lhs, uncompiled, var_in_scope).or_else(|mut res| {
+    let mut extract = |lhs: &tokenizer::Expression,
+                       rhs: &tokenizer::Expression,
+                       push_if_succeed: ExprCommand| {
+      let lhs =
+        Expression::from_token(&lhs, var_in_scope, get_accessible_fn_by_name).or_else(|mut res| {
           errors.append(&mut res);
           Err(())
         });
-        let rhs = Expression::from_token(&rhs, uncompiled, var_in_scope).or_else(|mut res| {
+      let rhs =
+        Expression::from_token(&rhs, var_in_scope, get_accessible_fn_by_name).or_else(|mut res| {
           errors.append(&mut res);
           Err(())
         });
-        let (Ok(mut lhs), Ok(mut rhs)) = (lhs, rhs) else {
-          return;
-        };
-        match Type::cast(&lhs.result_type, &rhs.result_type) {
-          Some(t) => result_type = t,
-          None => {
-            errors.push(CompileError::InvalidCast(
-              lhs.result_type.clone(),
-              rhs.result_type.clone(),
-            ));
-            return;
-          }
-        }
-        // lhs: push expr and cast if type does not match
-        expr_stack.append(&mut lhs.expr_stack);
-        if lhs.result_type != result_type {
-          expr_stack.push(ExprCommand::Cast(
-            lhs.result_type.clone(),
-            result_type.clone(),
-          ));
-        }
-        // rhs: push expr and cast if type does not match
-        expr_stack.append(&mut rhs.expr_stack);
-        if rhs.result_type != result_type {
-          expr_stack.push(ExprCommand::Cast(
-            rhs.result_type.clone(),
-            result_type.clone(),
-          ));
-        }
-        expr_stack.push(push_if_succeed);
+      let (Ok(mut lhs), Ok(mut rhs)) = (lhs, rhs) else {
+        return;
       };
+      match Type::cast(&lhs.result_type, &rhs.result_type) {
+        Some(t) => result_type = t,
+        None => {
+          errors.push(CompileError::InvalidCast(
+            lhs.result_type.clone(),
+            rhs.result_type.clone(),
+          ));
+          return;
+        }
+      }
+      // lhs: push expr and cast if type does not match
+      expr_stack.append(&mut lhs.expr_stack);
+      if lhs.result_type != result_type {
+        expr_stack.push(ExprCommand::Cast(
+          lhs.result_type.clone(),
+          result_type.clone(),
+        ));
+      }
+      // rhs: push expr and cast if type does not match
+      expr_stack.append(&mut rhs.expr_stack);
+      if rhs.result_type != result_type {
+        expr_stack.push(ExprCommand::Cast(
+          rhs.result_type.clone(),
+          result_type.clone(),
+        ));
+      }
+      expr_stack.push(push_if_succeed);
+    };
     use tokenizer::Expression::*;
     match token {
       Add(lhs, rhs) => extract(lhs.deref(), rhs.deref(), ExprCommand::Add),
@@ -245,7 +251,7 @@ impl Expression {
         )),
       },
       FnCall(fn_name, arguments, pos) => 'fn_call: {
-        let Some(called_fn) = uncompiled.get_accessible_fn_by_name(fn_name) else {
+        let Some(called_fn) = get_accessible_fn_by_name(fn_name) else {
           errors.push(CompileError::UndefinedFunction(
             fn_name.clone(),
             pos.clone(),
@@ -257,16 +263,16 @@ impl Expression {
         let mut failed = false;
         let mut arguments_expr = arguments
           .iter()
-          .flat_map(
-            |expr| match Expression::from_token(expr, uncompiled, var_in_scope) {
+          .flat_map(|expr| {
+            match Expression::from_token(expr, var_in_scope, get_accessible_fn_by_name) {
               Ok(expr) => expr.expr_stack,
               Err(mut err) => {
                 failed = true;
                 errors.append(&mut err);
                 vec![]
               }
-            },
-          )
+            }
+          })
           .collect();
         if !failed {
           expr_stack.append(&mut arguments_expr);
@@ -456,6 +462,9 @@ impl Function {
       );
     }
 
+    // return function that returns accessible (in-scope) function by name
+    let get_accessible_fn_by_name: AccessibleFnGetter =
+      Box::new(|name: &String| uncompiled.get_accessible_fn_by_name(name));
     for statement in &uncompiled.code {
       use tokenizer::StatementKind::*;
       match &statement.kind {
@@ -468,14 +477,17 @@ impl Function {
               continue;
             }
           };
-          let mut initial_value =
-            match Expression::from_token(&var.initial_value, &uncompiled, &var_in_scope) {
-              Ok(expr) => expr,
-              Err(mut res) => {
-                errors.append(&mut res);
-                continue;
-              }
-            };
+          let mut initial_value = match Expression::from_token(
+            &var.initial_value,
+            &var_in_scope,
+            &get_accessible_fn_by_name,
+          ) {
+            Ok(expr) => expr,
+            Err(mut res) => {
+              errors.append(&mut res);
+              continue;
+            }
+          };
           if initial_value.result_type != vartype {
             initial_value.expr_stack.push(ExprCommand::Cast(
               initial_value.result_type.clone(),
@@ -484,12 +496,15 @@ impl Function {
           }
           func.add_variable(var.name.clone(), vartype, initial_value, &mut var_in_scope);
         }
-        ExprStatement(expr) => match Expression::from_token(expr, &uncompiled, &var_in_scope) {
-          Ok(expr) => func.code.push(Statement::ExprStatement(expr)),
-          Err(mut res) => errors.append(&mut res),
-        },
+        ExprStatement(expr) => {
+          match Expression::from_token(expr, &var_in_scope, &get_accessible_fn_by_name) {
+            Ok(expr) => func.code.push(Statement::ExprStatement(expr)),
+            Err(mut res) => errors.append(&mut res),
+          }
+        }
         Return(expr) => {
-          let retval = match Expression::from_token(expr, &uncompiled, &var_in_scope) {
+          let retval = match Expression::from_token(expr, &var_in_scope, &get_accessible_fn_by_name)
+          {
             Ok(expr) => expr,
             Err(mut res) => {
               errors.append(&mut res);
@@ -526,6 +541,8 @@ impl Function {
 
 #[cfg(test)]
 mod test {
+  use crate::source_code::{self, Position};
+
   use super::*;
   #[test]
   fn convert_type_from_string() {
@@ -534,12 +551,129 @@ mod test {
       ("i64", Some(Type::I64)),
       ("i65535", None),
     ] {
-      let pos = crate::source_code::Position { lines: 0, cols: 0 };
+      let pos = source_code::Position::default();
       let vartype = tokenizer::Type {
         type_ident: type_ident.to_string(),
         pos,
       };
       assert_eq!(Type::try_from(vartype).ok(), expect);
+    }
+  }
+  #[test]
+  fn test_expression_from_token() {
+    let varname = "a".to_string();
+    let var_value = 10;
+    let var_in_scope: HashMap<String, Variable> = HashMap::from([(
+      varname.clone(),
+      Variable {
+        idx:           0,
+        name:          varname.clone(),
+        vartype:       Type::I32,
+        initial_value: Expression {
+          expr_stack:  vec![ExprCommand::PushImm(var_value)],
+          result_type: Type::I32,
+        },
+      },
+    )]);
+    let fn_getter: AccessibleFnGetter = Box::new(|name| {
+      assert_eq!(name, "f");
+      let f = UncompiledFunction {
+        idx: 0,
+        name: "f".to_string(),
+        return_type: Type::Void,
+        ..Default::default()
+      };
+      Some(Rc::new(RefCell::new(f)))
+    });
+    let eval_expr = |expr: &Expression| -> Option<i32> {
+      let mut stack: Vec<i32> = Vec::new();
+      for command in expr.expr_stack.iter() {
+        use ExprCommand::*;
+        match command {
+          Add => {
+            let lhs = stack.pop().unwrap();
+            let rhs = stack.pop().unwrap();
+            stack.push(lhs + rhs);
+          }
+          Sub => {
+            let lhs = stack.pop().unwrap();
+            let rhs = stack.pop().unwrap();
+            stack.push(lhs - rhs);
+          }
+          Mul => {
+            let lhs = stack.pop().unwrap();
+            let rhs = stack.pop().unwrap();
+            stack.push(lhs * rhs);
+          }
+          Div => {
+            let lhs = stack.pop().unwrap();
+            let rhs = stack.pop().unwrap();
+            stack.push(lhs / rhs);
+          }
+          Cast(_, _) => (), // FIXME?
+          PushImm(v) => stack.push(*v),
+          PushVar(idx) => {
+            assert_eq!(*idx, 0);
+            stack.push(var_value);
+          }
+          FnCall(idx) => assert_eq!(*idx, 0),
+          _ => unreachable!(),
+        }
+      }
+      assert!(stack.len() <= 1);
+      stack.pop()
+    };
+
+    {
+      use tokenizer::Expression::*;
+      // test that is expected to succeed
+      for (token, expect) in [
+        // 2 * (4+6) = 20
+        (
+          Mul(
+            Box::new(Constant(2)),
+            Box::new(Add(Box::new(Constant(4)), Box::new(Constant(6)))),
+          ),
+          Some(20),
+        ),
+        // just call a function that return type is void
+        (
+          FnCall(
+            "f".to_string(),
+            Vec::new(),
+            source_code::Position::default(),
+          ),
+          None,
+        ),
+      ] {
+        let expr = Expression::from_token(&token, &var_in_scope, &fn_getter)
+          .unwrap_or_else(|_| panic!("Expr is expected to succeed: {:?}", token));
+        assert_eq!(eval_expr(&expr), expect);
+      }
+      // test that is expected to fail
+      for (token, expect_err) in [
+        (
+          Variable("b".to_string(), Position::default()),
+          CompileError::UndefinedVariable("b".to_string(), Position::default()),
+        ),
+        (
+          Add(
+            Box::new(FnCall(
+              "f".to_string(),
+              Vec::new(),
+              source_code::Position::default(),
+            )),
+            Box::new(Constant(1)),
+          ),
+          CompileError::InvalidCast(Type::Void, Type::I32),
+        ),
+      ] {
+        let errors = Expression::from_token(&token, &var_in_scope, &fn_getter)
+          .err()
+          .unwrap_or_else(|| panic!("Expr is expected to fail: {:?}", token));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0], expect_err);
+      }
     }
   }
 }

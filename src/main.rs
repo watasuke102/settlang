@@ -85,17 +85,17 @@ fn f0() {
             f0() # ok
             # f8() <- NG
         }
-        fn f6() -> i32 {}
+        fn f6() -> i32 { ret 4 }
     }
 }
 fn f1() {
     fn f3() {
         fn f7() {
             f8() # ok
-            fn f8() -> i32 {}
+            fn f8() -> i32 { ret 8 }
         }
     }
-    fn f4() -> i32 {}
+    fn f4() -> i32 { ret 4 }
 }
 ",
     // variables
@@ -161,6 +161,9 @@ ret 0
     "fn main(){}let x:i32 = 0",
     r"
 fn no_return_type_but_has_return() { ret 0 }
+fn no_return_statement() 
+  -> i32 {
+}
 fn voidfunc(){}
 voidfunc() # ok
 # fn f() {}  fn f() -> i32 {}
@@ -230,13 +233,18 @@ fn f(){}
               name,
               code.pointed_string(pos)
             ),
+            ReturnNotFound(name, return_type) => println!(
+              "[error] function `{}` has return type ({:?}) but does not have return statement",
+              name,
+              return_type,
+            ),
             DuplicatedDecl(name, pos) => println!(
               "[error] {} -> `{}` is already defined\n{}",
               pos,
               name,
               code.pointed_string(pos)
             ),
-            WrongArgumentLen(   name, expect, actual, pos)  => println!(
+            WrongArgumentLen(name, expect, actual, pos)  => println!(
               "[error] {} -> function `{}` takes {} arg(s) but {} arg(s) was passed\n{}",
               pos,
               name,
@@ -264,7 +272,6 @@ fn f(){}
               actual,
               code.ranged_string(begin, end)
             ),
-            #[rustfmt::skip]
             GlobalStatementWithMain(lines) => {
               println!("[error] Statement(s) found in the outside of main()");
               println!("        lines: {}",

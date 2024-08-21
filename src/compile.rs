@@ -70,6 +70,7 @@ struct UncompiledFunction {
   owning_func:     HashMap<String, UncompiledFnCarrier>,
   parent:          Option<UncompiledFnCarrier>,
 }
+
 type UncompiledFnCarrier = Rc<RefCell<UncompiledFunction>>;
 type AccessibleFnGetter<'uncompiled_function_lifetime> =
   Box<dyn Fn(&String) -> Option<UncompiledFnCarrier> + 'uncompiled_function_lifetime>;
@@ -560,7 +561,15 @@ impl Function {
       }
     }
 
-    // TODO: check existance of Return statement
+    // raise error if the function has return type but does not have return statement
+    if func.return_type != Type::Void &&
+      !func.code.iter().any(|s| matches!(s, Statement::Return(_)))
+    {
+      errors.push(CompileError::ReturnNotFound(
+        func.name.clone(),
+        func.return_type.clone(),
+      ));
+    }
 
     errors_or(errors, func)
   }

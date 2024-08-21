@@ -16,8 +16,9 @@ pub enum StatementKind {
 }
 #[derive(Debug, Clone)]
 pub struct Statement {
-  pub kind: StatementKind,
-  pub pos:  source_code::Position,
+  pub kind:  StatementKind,
+  pub begin: source_code::Position,
+  pub end:   source_code::Position,
 }
 #[derive(Debug, Clone)]
 pub struct Type {
@@ -46,8 +47,9 @@ fn expect_statement(code: &mut SourceCode) -> TokenizeResult<Statement> {
   match expect_return(code) {
     Ok(res) => {
       return Ok(Statement {
-        kind: StatementKind::Return(res),
-        pos,
+        kind:  StatementKind::Return(res),
+        begin: pos,
+        end:   code.lines_and_cols(),
       })
     }
     Err(TokenizeError::NoMatch) => (),
@@ -56,8 +58,9 @@ fn expect_statement(code: &mut SourceCode) -> TokenizeResult<Statement> {
   match expect_fn_declaration(code) {
     Ok(res) => {
       return Ok(Statement {
-        kind: StatementKind::FnDecl(res),
-        pos,
+        kind:  StatementKind::FnDecl(res),
+        begin: pos,
+        end:   code.lines_and_cols(),
       })
     }
     Err(TokenizeError::NoMatch) => (),
@@ -66,8 +69,9 @@ fn expect_statement(code: &mut SourceCode) -> TokenizeResult<Statement> {
   match expect_var_declaration(code) {
     Ok(res) => {
       return Ok(Statement {
-        kind: StatementKind::VarDecl(res),
-        pos,
+        kind:  StatementKind::VarDecl(res),
+        begin: pos,
+        end:   code.lines_and_cols(),
       })
     }
     Err(TokenizeError::NoMatch) => (),
@@ -76,8 +80,9 @@ fn expect_statement(code: &mut SourceCode) -> TokenizeResult<Statement> {
   match expect_expression(code) {
     Ok(res) => {
       return Ok(Statement {
-        kind: StatementKind::ExprStatement(res),
-        pos,
+        kind:  StatementKind::ExprStatement(res),
+        begin: pos,
+        end:   code.lines_and_cols(),
       })
     }
     Err(TokenizeError::NoMatch) => (),

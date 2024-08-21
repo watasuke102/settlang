@@ -133,7 +133,7 @@ fn inside_comment() {
     // function
     r"
 fn add_2a_b(a: i32, b: i32) -> i64 {
-  let a: i64 = a*2 # shadowing
+  let a: i32 = a*2 # shadowing
   ret a+b
 }
 fn variables() -> i32 {
@@ -235,7 +235,6 @@ fn f(){}
               name,
               code.pointed_string(pos)
             ),
-            // FIXME: cannot print error line
             InvalidType(name, pos) => println!(
               "[error] {} -> `{}` is invalid type name\n{}",
               pos,
@@ -243,9 +242,17 @@ fn f(){}
               code.pointed_string(pos),
             ),
             InvalidCast(from, to, begin, end) => println!(
-              "[error] cannot cast from {:?} to {:?}\n{}",
+              "[error] {} -> cannot cast from {:?} to {:?}\n{}",
+              begin,
               from,
               to,
+              code.ranged_string(begin, end)
+            ),
+            MismatchReturnExprType(expect, actual, begin, end) => println!(
+              "[error] {} -> mismatched type; function return type is {:?} but return value is {:?}\n{}",
+              begin,
+              expect,
+              actual,
               code.ranged_string(begin, end)
             ),
             #[rustfmt::skip]

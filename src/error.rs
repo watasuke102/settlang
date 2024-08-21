@@ -30,5 +30,12 @@ pub enum CompileError {
     source_code::Position,
     source_code::Position,
   ),
+  // expect, actual, begin, end
+  MismatchReturnExprType(
+    compile::Type,
+    compile::Type,
+    source_code::Position,
+    source_code::Position,
+  ),
   GlobalStatementWithMain(Vec<usize>),
 }

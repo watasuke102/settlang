@@ -419,7 +419,7 @@ impl Program {
       uncompiled_functions.push(Rc::new(RefCell::new(main)));
     } else if statements.len() != 0 {
       errors.push(CompileError::GlobalStatementWithMain(
-        statements.iter().map(|s| s.pos.lines).collect(),
+        statements.iter().map(|s| s.begin.lines).collect(),
       ));
     }
 
@@ -512,7 +512,7 @@ impl Function {
           }
         }
         Return(expr) => {
-          let retval = match expr {
+          let mut retval = match expr {
             Some(expr) => {
               match Expression::from_token(expr, &var_in_scope, &get_accessible_fn_by_name) {
                 Ok(expr) => expr,
@@ -527,7 +527,21 @@ impl Function {
               result_type: Type::Void,
             },
           };
-          // TODO: type check
+          if func.return_type != retval.result_type {
+            if func.return_type == Type::Void || retval.result_type == Type::Void {
+              errors.push(CompileError::MismatchReturnExprType(
+                func.return_type.clone(),
+                retval.result_type,
+                statement.begin.clone(),
+                statement.end.clone(),
+              ));
+              continue;
+            }
+            retval.expr_stack.push(ExprCommand::Cast(
+              retval.result_type.clone(),
+              func.return_type.clone(),
+            ));
+          }
           func.code.push(Statement::Return(retval));
         }
       }

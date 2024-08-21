@@ -12,7 +12,7 @@ pub enum StatementKind {
   FnDecl(Function),
   VarDecl(Variable),
   ExprStatement(Expression),
-  Return(Expression),
+  Return(Option<Expression>),
 }
 #[derive(Debug, Clone)]
 pub struct Statement {
@@ -87,9 +87,14 @@ fn expect_statement(code: &mut SourceCode) -> TokenizeResult<Statement> {
   Err(TokenizeError::NoMatch)
 }
 
-fn expect_return(code: &mut SourceCode) -> TokenizeResult<Expression> {
-  seq(vec![str("ret"), mul(space())])(code).or(Err(TokenizeError::NoMatch))?;
-  expect_expression(code)
+fn expect_return(code: &mut SourceCode) -> TokenizeResult<Option<Expression>> {
+  str("ret")(code).or(Err(TokenizeError::NoMatch))?;
+  code.skip_space();
+  match expect_expression(code) {
+    Ok(res) => Ok(Some(res)),
+    Err(TokenizeError::NoMatch) => Ok(None),
+    Err(e) => Err(e),
+  }
 }
 
 #[derive(Debug, Clone)]
@@ -401,12 +406,11 @@ mod test {
       assert_eq!(func.code.len(), 1);
       assert!(func.return_type.is_some());
       assert_eq!(func.return_type.unwrap().type_ident, "i32".to_string());
-      let StatementKind::Return(ref expr) = func.code[0].kind else {
-        panic!(
-          "Statement is wrong; expect: Return, actual: {:?}",
-          func.code[0]
-        );
+      let code = func.code[0].clone();
+      let StatementKind::Return(expr) = code.kind else {
+        panic!("Statement is wrong; expect: Return, actual: {:?}", code);
       };
+      let expr = expr.expect("No return value expression");
       let ExprElement::Constant(parsed_retval) = expr.element else {
         panic!("Expression is wrong; expect: Constant, actual: {:?}", expr);
       };
@@ -435,19 +439,32 @@ mod test {
     for (code, is_expected_success, retval) in [
       ("ret 0", true, 0),
       ("ret    128", true, 128),
+      ("ret(1)", true, 1),
       ("ret0", false, 0),
     ] {
-      let Ok(res) = expect_return(&mut SourceCode::new(&code)) else {
+      let Ok(expr) = expect_return(&mut SourceCode::new(&code)) else {
         if is_expected_success {
           panic!("code `{}` is expected to succeed but it fails", code);
         } else {
           continue;
         }
       };
-      let ExprElement::Constant(parsed_retval) = res.element else {
-        panic!("Expression is wrong; expect: Constant, actual: {:?}", res);
+      let expr = expr.expect("No return value expression");
+      let ExprElement::Constant(parsed_retval) = expr.element else {
+        panic!("Expression is wrong; expect: Constant, actual: {:?}", expr);
       };
       assert_eq!(parsed_retval, retval);
+    }
+
+    // no return value
+    for code in [
+      "ret ",   // ret with space
+      "ret\n}", // next line is the end of function
+      "ret}",   // end of function, no space
+    ] {
+      let expr = expect_return(&mut SourceCode::new(code))
+        .unwrap_or_else(|e| panic!("failed to parse '{:?}' as return statement : {:?}", code, e));
+      assert!(expr.is_none());
     }
   }
   #[test]

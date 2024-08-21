@@ -512,13 +512,20 @@ impl Function {
           }
         }
         Return(expr) => {
-          let retval = match Expression::from_token(expr, &var_in_scope, &get_accessible_fn_by_name)
-          {
-            Ok(expr) => expr,
-            Err(mut res) => {
-              errors.append(&mut res);
-              continue;
+          let retval = match expr {
+            Some(expr) => {
+              match Expression::from_token(expr, &var_in_scope, &get_accessible_fn_by_name) {
+                Ok(expr) => expr,
+                Err(mut res) => {
+                  errors.append(&mut res);
+                  continue;
+                }
+              }
             }
+            None => Expression {
+              expr_stack:  Vec::new(),
+              result_type: Type::Void,
+            },
           };
           // TODO: type check
           func.code.push(Statement::Return(retval));
@@ -526,7 +533,7 @@ impl Function {
       }
     }
 
-    // TODO: existance of Return statement
+    // TODO: check existance of Return statement
 
     errors_or(errors, func)
   }

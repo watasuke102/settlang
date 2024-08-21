@@ -169,6 +169,7 @@ call_f()
 ret variable
 voidfunc() + 1 # ??
 (2)
+voidfunc(1, 2, 3)
 ",
     r"
 fn f(){}
@@ -234,6 +235,14 @@ fn f(){}
               pos,
               name,
               code.pointed_string(pos)
+            ),
+            WrongArgumentLen(   name, expect, actual, pos)  => println!(
+              "[error] {} -> function `{}` takes {} arg(s) but {} arg(s) was passed\n{}",
+              pos,
+              name,
+              expect,
+              actual,
+              code.pointed_string(pos),
             ),
             InvalidType(name, pos) => println!(
               "[error] {} -> `{}` is invalid type name\n{}",

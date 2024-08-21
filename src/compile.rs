@@ -268,21 +268,35 @@ impl Expression {
           break 'fn_call;
         };
         let called_fn = called_fn.borrow();
-        // TODO: argument validation (number, type, etc?)
+        if arguments.len() != called_fn.args.len() {
+          errors.push(CompileError::WrongArgumentLen(
+            called_fn.name.clone(),
+            called_fn.args.len(),
+            arguments.len(),
+            pos.clone(),
+          ));
+          break 'fn_call;
+        }
+
         let mut failed = false;
-        let mut arguments_expr = arguments
-          .iter()
-          .flat_map(|expr| {
-            match Expression::from_token(expr, var_in_scope, get_accessible_fn_by_name) {
-              Ok(expr) => expr.expr_stack,
-              Err(mut err) => {
-                failed = true;
-                errors.append(&mut err);
-                vec![]
+        let mut arguments_expr = Vec::new();
+        for (i, arg_expr) in arguments.iter().enumerate() {
+          match Expression::from_token(arg_expr, var_in_scope, get_accessible_fn_by_name) {
+            Ok(mut expr) => {
+              if expr.result_type != called_fn.args[i].vartype {
+                expr.expr_stack.push(ExprCommand::Cast(
+                  expr.result_type.clone(),
+                  called_fn.args[i].vartype.clone(),
+                ));
               }
+              arguments_expr.append(&mut expr.expr_stack);
             }
-          })
-          .collect();
+            Err(mut err) => {
+              failed = true;
+              errors.append(&mut err);
+            }
+          }
+        }
         if !failed {
           expr_stack.append(&mut arguments_expr);
           expr_stack.push(ExprCommand::FnCall(called_fn.idx));
@@ -325,7 +339,6 @@ fn enumerate_same_level_functions(
       continue;
     }
     appeared.insert(func_name.clone(), ());
-    // let func =
     match UncompiledFunction::new(*fn_idx, func, parent_func.clone()) {
       Ok(func) => {
         let func = Rc::new(RefCell::new(func));

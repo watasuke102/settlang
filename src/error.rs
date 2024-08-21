@@ -22,6 +22,8 @@ pub enum CompileError {
   UndefinedVariable(String, source_code::Position),
   UndefinedFunction(String, source_code::Position),
   DuplicatedDecl(String, source_code::Position),
+  // function name, expect, actual
+  WrongArgumentLen(String, usize, usize, source_code::Position),
   InvalidType(String, source_code::Position),
   // from, to, begin, end
   InvalidCast(

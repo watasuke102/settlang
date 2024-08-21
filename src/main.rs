@@ -1,7 +1,7 @@
 #![feature(stmt_expr_attributes)]
 use compile::Program;
 use source_code::SourceCode;
-use tokenizer::Statement;
+use tokenizer::StatementKind;
 
 mod compile;
 mod error;
@@ -9,51 +9,51 @@ mod parser;
 mod source_code;
 mod tokenizer;
 
-fn print_statement(statement: &Statement, indent: usize) {
-  // let indent_space = "  ".repeat(indent);
-  // match statement {
-  //   Statement::FnDecl(func) => {
-  //     println!(
-  //       "{}[declare] fn {}({}){} {{",
-  //       indent_space,
-  //       func.name,
-  //       func
-  //         .args
-  //         .iter()
-  //         .map(|e| format!("{}: {}", e.name, e.vartype))
-  //         .collect::<Vec<String>>()
-  //         .join(", "),
-  //       if func.return_type.is_some() {
-  //         format!(" -> {}", func.return_type.as_ref().unwrap())
-  //       } else {
-  //         "".to_string()
-  //       },
-  //     );
-  //     func
-  //       .code
-  //       .iter()
-  //       .for_each(|s| print_statement(&s, indent + 1));
-  //     println!("{}}}", indent_space);
-  //   }
-  //   Statement::VarDecl(var) => println!(
-  //     "{}[variable] {}: type={:?}, initial_value={:?}",
-  //     indent_space, var.name, var.vartype, var.initial_value
-  //   ),
-  //   Statement::ExprStatement(expr) => {
-  //     println!(
-  //       "{}[expr] {:?} (eval: {:?})",
-  //       indent_space,
-  //       expr,
-  //       expr.eval()
-  //     )
-  //   }
-  //   Statement::Return(retval) => println!(
-  //     "{}[return] retval: {:?} (eval: {:?})",
-  //     indent_space,
-  //     retval,
-  //     retval.eval()
-  //   ),
-  // }
+fn _print_statement(statement: &StatementKind, indent: usize) {
+  let indent_space = "  ".repeat(indent);
+  match statement {
+    StatementKind::FnDecl(func) => {
+      println!(
+        "{}[declare] fn {}({}){} {{",
+        indent_space,
+        func.name,
+        func
+          .args
+          .iter()
+          .map(|e| format!("{}: {}", e.name, e.vartype.type_ident))
+          .collect::<Vec<String>>()
+          .join(", "),
+        if let Some(ref return_type) = func.return_type {
+          format!(" -> {}", return_type.type_ident)
+        } else {
+          "".to_string()
+        },
+      );
+      func
+        .code
+        .iter()
+        .for_each(|s| _print_statement(&s.kind, indent + 1));
+      println!("{}}}", indent_space);
+    }
+    StatementKind::VarDecl(var) => println!(
+      "{}[variable] {}: type={:?}, initial_value={:?}",
+      indent_space, var.name, var.vartype, var.initial_value
+    ),
+    StatementKind::ExprStatement(expr) => {
+      println!(
+        "{}[expr] {:?} (eval: {:?})",
+        indent_space,
+        expr,
+        expr.element._eval()
+      )
+    }
+    StatementKind::Return(retval) => println!(
+      "{}[return] retval: {:?} (eval: {:?})",
+      indent_space,
+      retval,
+      retval.clone().and_then(|e| e.element._eval().ok())
+    ),
+  }
 }
 
 fn main() {
@@ -198,7 +198,7 @@ fn f(){}
             "Failed to parse"
           }
         );
-        statements.iter().for_each(|s| print_statement(&s, 0));
+        // statements.iter().for_each(|s| _print_statement(&s.kind, 0));
         statements
       }
       Err(e) => {

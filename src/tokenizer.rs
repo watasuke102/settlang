@@ -197,8 +197,8 @@ impl Expression {
   pub fn replaced(&self, element: ExprElement) -> Self {
     Expression {
       element,
-      begin: self.begin.clone(),
-      end: self.end.clone(),
+      begin: self.begin,
+      end: self.end,
     }
   }
 }
@@ -221,14 +221,15 @@ pub enum ExprElement {
   Div(Box<ExprElement>, Box<ExprElement>),
 }
 impl ExprElement {
-  pub fn eval(&self) -> Result<i32, ()> {
+  // this function is used for test so basically raise warning (unused function)
+  pub fn _eval(&self) -> Result<i32, ()> {
     use ExprElement::*;
     match self {
       Constant(a) => Ok(*a),
-      Add(lhs, rhs) => Ok(lhs.eval()? + rhs.eval()?),
-      Sub(lhs, rhs) => Ok(lhs.eval()? - rhs.eval()?),
-      Mul(lhs, rhs) => Ok(lhs.eval()? * rhs.eval()?),
-      Div(lhs, rhs) => Ok(lhs.eval()? / rhs.eval()?),
+      Add(lhs, rhs) => Ok(lhs._eval()? + rhs._eval()?),
+      Sub(lhs, rhs) => Ok(lhs._eval()? - rhs._eval()?),
+      Mul(lhs, rhs) => Ok(lhs._eval()? * rhs._eval()?),
+      Div(lhs, rhs) => Ok(lhs._eval()? / rhs._eval()?),
       _ => Err(()),
     }
   }
@@ -496,7 +497,7 @@ mod test {
       let Ok(expr) = expect_expression(&mut SourceCode::new(code)) else {
         panic!("code `{}` is not parsed as expression", code);
       };
-      assert_eq!(expr.element.eval(), Ok(expect), "(code: {})", code);
+      assert_eq!(expr.element._eval(), Ok(expect), "(code: {})", code);
     }
   }
   #[test]
@@ -539,7 +540,7 @@ mod test {
       assert_eq!(parsed_name, name);
       for i in 0..args.len() {
         assert_eq!(
-          parsed_args[i].element.eval().unwrap(),
+          parsed_args[i].element._eval().unwrap(),
           args[i],
           "code: `{}`",
           code

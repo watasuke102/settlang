@@ -216,8 +216,8 @@ impl Expression {
             errors.push(CompileError::InvalidCast(
               lhs.result_type.clone(),
               rhs.result_type.clone(),
-              token.begin.clone(),
-              token.end.clone(),
+              token.begin,
+              token.end,
             ));
             return;
           }
@@ -255,17 +255,11 @@ impl Expression {
           expr_stack.push(ExprCommand::PushVar(var.idx));
           result_type = var.vartype.clone();
         }
-        None => errors.push(CompileError::UndefinedVariable(
-          var_name.clone(),
-          pos.clone(),
-        )),
+        None => errors.push(CompileError::UndefinedVariable(var_name.clone(), *pos)),
       },
       FnCall(fn_name, arguments, pos) => 'fn_call: {
         let Some(called_fn) = get_accessible_fn_by_name(fn_name) else {
-          errors.push(CompileError::UndefinedFunction(
-            fn_name.clone(),
-            pos.clone(),
-          ));
+          errors.push(CompileError::UndefinedFunction(fn_name.clone(), *pos));
           break 'fn_call;
         };
         let called_fn = called_fn.borrow();
@@ -274,7 +268,7 @@ impl Expression {
             called_fn.name.clone(),
             called_fn.args.len(),
             arguments.len(),
-            pos.clone(),
+            *pos,
           ));
           break 'fn_call;
         }
@@ -333,10 +327,7 @@ fn enumerate_same_level_functions(
     };
     let func_name = func.name.clone();
     if appeared.get(&func_name).is_some() {
-      errors.push(CompileError::DuplicatedDecl(
-        func_name,
-        func.declared_pos.clone(),
-      ));
+      errors.push(CompileError::DuplicatedDecl(func_name, func.declared_pos));
       continue;
     }
     appeared.insert(func_name.clone(), ());
@@ -546,8 +537,8 @@ impl Function {
               errors.push(CompileError::MismatchReturnExprType(
                 func.return_type.clone(),
                 retval.result_type,
-                statement.begin.clone(),
-                statement.end.clone(),
+                statement.begin,
+                statement.end,
               ));
               continue;
             }

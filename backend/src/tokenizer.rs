@@ -223,7 +223,7 @@ pub enum ExprElement {
 impl ExprElement {
   // this function is used for test so basically raise warning (unused function)
   pub fn _eval(&self) -> Result<i32, ()> {
-    use ExprElement::*;
+    use self::ExprElement::*;
     match self {
       Constant(a) => Ok(*a),
       Add(lhs, rhs) => Ok(lhs._eval()? + rhs._eval()?),

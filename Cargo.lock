@@ -3,5 +3,12 @@
 version = 3
 
 [[package]]
-name = "settlang"
+name = "backend"
 version = "0.1.0"
+
+[[package]]
+name = "cli_compiler"
+version = "0.1.0"
+dependencies = [
+ "backend",
+]

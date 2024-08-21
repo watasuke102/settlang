@@ -397,7 +397,7 @@ impl Program {
       uncompiled_functions.push(next);
     }
     uncompiled_functions.sort_by_key(|e| e.borrow().idx);
-    debug_log_uncompiled_functions(&uncompiled_functions);
+    // _debug_log_uncompiled_functions(&uncompiled_functions);
 
     // wrap entire code by function `main() -> void` if main() is not defined
     let should_wrap_virtual_main = !uncompiled_functions
@@ -743,7 +743,7 @@ mod test {
 }
 
 // Show result (temporary; for testing)
-fn debug_log_uncompiled_functions(uncompiled_functions: &Vec<UncompiledFnCarrier>) {
+fn _debug_log_uncompiled_functions(uncompiled_functions: &Vec<UncompiledFnCarrier>) {
   for f in uncompiled_functions {
     fn map_to_strings(m: &HashMap<String, UncompiledFnCarrier>) -> String {
       m.iter()

@@ -72,6 +72,25 @@ impl SourceCode {
     ]
     .join("\n")
   }
+  pub fn ranged_string(&self, begin: &Position, end: &Position) -> String {
+    assert!(begin.lines <= end.lines);
+    let max_line_number_len = end.lines.to_string().len();
+    let lines: Vec<String> = String::from_iter(self.code.iter())
+      .lines()
+      .map(|l| l.to_string())
+      .collect();
+    (begin.lines..=end.lines)
+      .map(|i| {
+        format!(
+          "  {:width$} | {}",
+          i,
+          lines.get(i - 1).unwrap_or(&"".to_string()),
+          width = max_line_number_len
+        )
+      })
+      .collect::<Vec<String>>()
+      .join("\n")
+  }
   /// return current position as lines and rows (1-indexed!)
   pub fn lines_and_cols(&self) -> Position {
     let mut pos = Position { lines: 1, cols: 1 };

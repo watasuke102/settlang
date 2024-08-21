@@ -23,6 +23,12 @@ pub enum CompileError {
   UndefinedFunction(String, source_code::Position),
   DuplicatedDecl(String, source_code::Position),
   InvalidType(String, source_code::Position),
-  InvalidCast(compile::Type, compile::Type),
+  // from, to, begin, end
+  InvalidCast(
+    compile::Type,
+    compile::Type,
+    source_code::Position,
+    source_code::Position,
+  ),
   GlobalStatementWithMain(Vec<usize>),
 }

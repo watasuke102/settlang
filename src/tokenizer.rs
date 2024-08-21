@@ -176,19 +176,43 @@ fn expect_fn_declaration(code: &mut SourceCode) -> TokenizeResult<Function> {
   })
 }
 
+#[derive(Debug, Clone)]
+pub struct Expression {
+  pub element: ExprElement,
+  pub begin:   source_code::Position,
+  pub end:     source_code::Position,
+}
+impl Expression {
+  /// create Expression that replaced only element and return it
+  pub fn replaced(&self, element: ExprElement) -> Self {
+    Expression {
+      element,
+      begin: self.begin.clone(),
+      end: self.end.clone(),
+    }
+  }
+}
+impl PartialEq for Expression {
+  fn eq(&self, other: &Self) -> bool {
+    self.element == other.element
+  }
+  fn ne(&self, other: &Self) -> bool {
+    self.element != other.element
+  }
+}
 #[derive(Debug, Clone, PartialEq)]
-pub enum Expression {
+pub enum ExprElement {
   Constant(i32),
   Variable(String, source_code::Position),
   FnCall(String, Vec<Expression>, source_code::Position),
-  Add(Box<Expression>, Box<Expression>),
-  Sub(Box<Expression>, Box<Expression>),
-  Mul(Box<Expression>, Box<Expression>),
-  Div(Box<Expression>, Box<Expression>),
+  Add(Box<ExprElement>, Box<ExprElement>),
+  Sub(Box<ExprElement>, Box<ExprElement>),
+  Mul(Box<ExprElement>, Box<ExprElement>),
+  Div(Box<ExprElement>, Box<ExprElement>),
 }
-impl Expression {
+impl ExprElement {
   pub fn eval(&self) -> Result<i32, ()> {
-    use Expression::*;
+    use ExprElement::*;
     match self {
       Constant(a) => Ok(*a),
       Add(lhs, rhs) => Ok(lhs.eval()? + rhs.eval()?),
@@ -201,48 +225,57 @@ impl Expression {
 }
 // <expr> = <expr-secondary> ('+' <expr-secondary> | '-' <expr-secondary>)*
 fn expect_expression(code: &mut SourceCode) -> TokenizeResult<Expression> {
+  let begin = code.lines_and_cols();
   let mut expr = expect_expr_secondary(code)?;
   loop {
+    let initial_pos = code.pos();
     if char('+')(code.skip_space()).is_ok() {
       let second_expr = expect_expr_secondary(code.skip_space())?;
-      expr = Expression::Add(Box::new(expr), Box::new(second_expr));
+      expr = ExprElement::Add(Box::new(expr), Box::new(second_expr));
     } else if char('-')(code.skip_space()).is_ok() {
       let second_expr = expect_expr_secondary(code.skip_space())?;
-      expr = Expression::Sub(Box::new(expr), Box::new(second_expr));
+      expr = ExprElement::Sub(Box::new(expr), Box::new(second_expr));
     } else {
+      code.unwind(initial_pos);
       break;
     }
   }
-  return Ok(expr);
+  return Ok(Expression {
+    element: expr,
+    begin,
+    end: code.lines_and_cols(),
+  });
 
   // <expr-secondary> = <expr-primary> ('*' <expr-primary> | '/' <expr-primary>)*
-  fn expect_expr_secondary(code: &mut SourceCode) -> TokenizeResult<Expression> {
+  fn expect_expr_secondary(code: &mut SourceCode) -> TokenizeResult<ExprElement> {
     let mut expr = expect_expr_primary(code)?;
     loop {
+      let initial_pos = code.pos();
       if char('*')(code.skip_space()).is_ok() {
         let second_expr = expect_expr_primary(code.skip_space())?;
-        expr = Expression::Mul(Box::new(expr), Box::new(second_expr));
+        expr = ExprElement::Mul(Box::new(expr), Box::new(second_expr));
       } else if char('/')(code.skip_space()).is_ok() {
         let second_expr = expect_expr_primary(code.skip_space())?;
-        expr = Expression::Div(Box::new(expr), Box::new(second_expr));
+        expr = ExprElement::Div(Box::new(expr), Box::new(second_expr));
       } else {
+        code.unwind(initial_pos);
         break;
       }
     }
     Ok(expr)
   }
   // <expr-primary> = <constant> | '(' <expr> ')'
-  fn expect_expr_primary(code: &mut SourceCode) -> TokenizeResult<Expression> {
+  fn expect_expr_primary(code: &mut SourceCode) -> TokenizeResult<ExprElement> {
     if char('(')(code).is_ok() {
       let Ok(expr) = expect_expression(code.skip_space()) else {
         return Err(TokenizeError::ExpectedExpression);
       };
       char(')')(code.skip_space()).or(Err(TokenizeError::UnclosedDelimiter))?;
-      return Ok(expr);
+      return Ok(expr.element);
     }
 
     match expect_constant(code) {
-      Ok(res) => return Ok(Expression::Constant(res)),
+      Ok(res) => return Ok(ExprElement::Constant(res)),
       Err(TokenizeError::NoMatch) => (),
       Err(e) => return Err(e),
     }
@@ -251,7 +284,7 @@ fn expect_expression(code: &mut SourceCode) -> TokenizeResult<Expression> {
     let ident = expect_identifier(code)?;
     // check whether <ident> is function
     let Ok(()) = char('(')(code.skip_space()) else {
-      return Ok(Expression::Variable(ident, use_pos));
+      return Ok(ExprElement::Variable(ident, use_pos));
     };
 
     let mut args = Vec::new();
@@ -269,7 +302,7 @@ fn expect_expression(code: &mut SourceCode) -> TokenizeResult<Expression> {
     }
     char(')')(code.skip_space()).or(Err(TokenizeError::UnclosedDelimiter))?;
 
-    return Ok(Expression::FnCall(ident, args, use_pos));
+    return Ok(ExprElement::FnCall(ident, args, use_pos));
 
     fn expect_constant(code: &mut SourceCode) -> TokenizeResult<i32> {
       let mut sign = 1;
@@ -374,10 +407,10 @@ mod test {
           func.code[0]
         );
       };
-      let Expression::Constant(parsed_retval) = expr else {
+      let ExprElement::Constant(parsed_retval) = expr.element else {
         panic!("Expression is wrong; expect: Constant, actual: {:?}", expr);
       };
-      assert_eq!(*parsed_retval, retval);
+      assert_eq!(parsed_retval, retval);
     }
   }
   #[test]
@@ -411,7 +444,7 @@ mod test {
           continue;
         }
       };
-      let Expression::Constant(parsed_retval) = res else {
+      let ExprElement::Constant(parsed_retval) = res.element else {
         panic!("Expression is wrong; expect: Constant, actual: {:?}", res);
       };
       assert_eq!(parsed_retval, retval);
@@ -441,7 +474,7 @@ mod test {
       let Ok(expr) = expect_expression(&mut SourceCode::new(code)) else {
         panic!("code `{}` is not parsed as expression", code);
       };
-      assert_eq!(expr.eval(), Ok(expect), "(code: {})", code);
+      assert_eq!(expr.element.eval(), Ok(expect), "(code: {})", code);
     }
   }
   #[test]
@@ -451,13 +484,13 @@ mod test {
     let Ok(res) = expect_expression(&mut SourceCode::new(&code)) else {
       panic!("failed to parse code `{}` as an expression", code);
     };
-    let Expression::Add(var, _) = res else {
+    let ExprElement::Add(var, _) = res.element else {
       panic!(
-        "code `{}` was not parsed as Expression::Add (result: {:?})",
+        "code `{}` was not parsed as ExprElement::Add (result: {:?})",
         code, res
       );
     };
-    let Expression::Variable(parsed_varname, _) = *var else {
+    let ExprElement::Variable(parsed_varname, _) = *var else {
       panic!(
         "right-hand side of `{}` was not parsed as variable (result: {:?})",
         code, var
@@ -475,7 +508,7 @@ mod test {
       let Ok(res) = expect_expression(&mut SourceCode::new(code)) else {
         panic!("failed to parse code `{}` as an expression", code);
       };
-      let Expression::FnCall(parsed_name, parsed_args, _) = res else {
+      let ExprElement::FnCall(parsed_name, parsed_args, _) = res.element else {
         panic!(
           "code `{}` is expected to be parsed as FnCall but actually {:?}",
           code, res
@@ -483,7 +516,12 @@ mod test {
       };
       assert_eq!(parsed_name, name);
       for i in 0..args.len() {
-        assert_eq!(parsed_args[i].eval().unwrap(), args[i], "code: `{}`", code);
+        assert_eq!(
+          parsed_args[i].element.eval().unwrap(),
+          args[i],
+          "code: `{}`",
+          code
+        );
       }
     }
   }

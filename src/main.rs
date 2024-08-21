@@ -163,12 +163,19 @@ return 0
 fn no_return_type_but_has_return() { return 0 }
 fn voidfunc(){}
 voidfunc() # ok
-voidfunc() + 1 # ??
 # fn f() {}  fn f() -> i32 {}
 let x: WrongType = 0
- call_f()
+call_f()
 return variable
+voidfunc() + 1 # ??
+(2)
 ",
+    r"
+fn f(){}
+  f()
+  +
+  1
+9",
   ] {
     println!("----------------------------------------------");
     // basically above examples start with '\n'
@@ -235,7 +242,12 @@ return variable
               name,
               code.pointed_string(pos),
             ),
-            InvalidCast(from, to) => println!("[error] cannot cast from {:?} to {:?}", from, to),
+            InvalidCast(from, to, begin, end) => println!(
+              "[error] cannot cast from {:?} to {:?}\n{}",
+              from,
+              to,
+              code.ranged_string(begin, end)
+            ),
             #[rustfmt::skip]
             GlobalStatementWithMain(lines) => {
               println!("[error] Statement(s) found in the outside of main()");
@@ -249,7 +261,7 @@ return variable
             }
           }
         }
-        println!("Failed to compile; {} error(s)", errors.len());
+        println!("Failed to compile due to {} error(s)", errors.len());
       }
     }
   }

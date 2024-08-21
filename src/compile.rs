@@ -186,52 +186,61 @@ impl Expression {
     let mut result_type = Type::I32;
 
     // convert lhs and rhs (both are token), push them if no errors occured
-    let mut extract = |lhs: &tokenizer::Expression,
-                       rhs: &tokenizer::Expression,
-                       push_if_succeed: ExprCommand| {
-      let lhs =
-        Expression::from_token(&lhs, var_in_scope, get_accessible_fn_by_name).or_else(|mut res| {
+    let mut extract =
+      |lhs: &tokenizer::ExprElement, rhs: &tokenizer::ExprElement, push_if_succeed: ExprCommand| {
+        let lhs = Expression::from_token(
+          &token.replaced(lhs.clone()),
+          var_in_scope,
+          get_accessible_fn_by_name,
+        )
+        .or_else(|mut res| {
           errors.append(&mut res);
           Err(())
         });
-      let rhs =
-        Expression::from_token(&rhs, var_in_scope, get_accessible_fn_by_name).or_else(|mut res| {
+        let rhs = Expression::from_token(
+          &token.replaced(rhs.clone()),
+          var_in_scope,
+          get_accessible_fn_by_name,
+        )
+        .or_else(|mut res| {
           errors.append(&mut res);
           Err(())
         });
-      let (Ok(mut lhs), Ok(mut rhs)) = (lhs, rhs) else {
-        return;
-      };
-      match Type::cast(&lhs.result_type, &rhs.result_type) {
-        Some(t) => result_type = t,
-        None => {
-          errors.push(CompileError::InvalidCast(
-            lhs.result_type.clone(),
-            rhs.result_type.clone(),
-          ));
+        let (Ok(mut lhs), Ok(mut rhs)) = (lhs, rhs) else {
           return;
+        };
+        match Type::cast(&lhs.result_type, &rhs.result_type) {
+          Some(t) => result_type = t,
+          None => {
+            errors.push(CompileError::InvalidCast(
+              lhs.result_type.clone(),
+              rhs.result_type.clone(),
+              token.begin.clone(),
+              token.end.clone(),
+            ));
+            return;
+          }
         }
-      }
-      // lhs: push expr and cast if type does not match
-      expr_stack.append(&mut lhs.expr_stack);
-      if lhs.result_type != result_type {
-        expr_stack.push(ExprCommand::Cast(
-          lhs.result_type.clone(),
-          result_type.clone(),
-        ));
-      }
-      // rhs: push expr and cast if type does not match
-      expr_stack.append(&mut rhs.expr_stack);
-      if rhs.result_type != result_type {
-        expr_stack.push(ExprCommand::Cast(
-          rhs.result_type.clone(),
-          result_type.clone(),
-        ));
-      }
-      expr_stack.push(push_if_succeed);
-    };
-    use tokenizer::Expression::*;
-    match token {
+        // lhs: push expr and cast if type does not match
+        expr_stack.append(&mut lhs.expr_stack);
+        if lhs.result_type != result_type {
+          expr_stack.push(ExprCommand::Cast(
+            lhs.result_type.clone(),
+            result_type.clone(),
+          ));
+        }
+        // rhs: push expr and cast if type does not match
+        expr_stack.append(&mut rhs.expr_stack);
+        if rhs.result_type != result_type {
+          expr_stack.push(ExprCommand::Cast(
+            rhs.result_type.clone(),
+            result_type.clone(),
+          ));
+        }
+        expr_stack.push(push_if_succeed);
+      };
+    use tokenizer::ExprElement::*;
+    match &token.element {
       Add(lhs, rhs) => extract(lhs.deref(), rhs.deref(), ExprCommand::Add),
       Sub(lhs, rhs) => extract(lhs.deref(), rhs.deref(), ExprCommand::Sub),
       Mul(lhs, rhs) => extract(lhs.deref(), rhs.deref(), ExprCommand::Mul),
@@ -625,9 +634,9 @@ mod test {
     };
 
     {
-      use tokenizer::Expression::*;
+      use tokenizer::ExprElement::*;
       // test that is expected to succeed
-      for (token, expect) in [
+      for (element, expect) in [
         // 2 * (4+6) = 20
         (
           Mul(
@@ -646,12 +655,20 @@ mod test {
           None,
         ),
       ] {
-        let expr = Expression::from_token(&token, &var_in_scope, &fn_getter)
-          .unwrap_or_else(|_| panic!("Expr is expected to succeed: {:?}", token));
+        let expr = Expression::from_token(
+          &tokenizer::Expression {
+            element: element.clone(),
+            begin:   source_code::Position::default(),
+            end:     source_code::Position::default(),
+          },
+          &var_in_scope,
+          &fn_getter,
+        )
+        .unwrap_or_else(|_| panic!("Expr is expected to succeed: {:?}", element));
         assert_eq!(eval_expr(&expr), expect);
       }
       // test that is expected to fail
-      for (token, expect_err) in [
+      for (element, expect_err) in [
         (
           Variable("b".to_string(), Position::default()),
           CompileError::UndefinedVariable("b".to_string(), Position::default()),
@@ -665,12 +682,25 @@ mod test {
             )),
             Box::new(Constant(1)),
           ),
-          CompileError::InvalidCast(Type::Void, Type::I32),
+          CompileError::InvalidCast(
+            Type::Void,
+            Type::I32,
+            source_code::Position::default(),
+            source_code::Position::default(),
+          ),
         ),
       ] {
-        let errors = Expression::from_token(&token, &var_in_scope, &fn_getter)
-          .err()
-          .unwrap_or_else(|| panic!("Expr is expected to fail: {:?}", token));
+        let errors = Expression::from_token(
+          &tokenizer::Expression {
+            element: element.clone(),
+            begin:   source_code::Position::default(),
+            end:     source_code::Position::default(),
+          },
+          &var_in_scope,
+          &fn_getter,
+        )
+        .err()
+        .unwrap_or_else(|| panic!("Expr is expected to fail: {:?}", element));
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0], expect_err);
       }

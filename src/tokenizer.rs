@@ -88,7 +88,7 @@ fn expect_statement(code: &mut SourceCode) -> TokenizeResult<Statement> {
 }
 
 fn expect_return(code: &mut SourceCode) -> TokenizeResult<Expression> {
-  seq(vec![str("return"), mul(space())])(code).or(Err(TokenizeError::NoMatch))?;
+  seq(vec![str("ret"), mul(space())])(code).or(Err(TokenizeError::NoMatch))?;
   expect_expression(code)
 }
 
@@ -370,11 +370,11 @@ mod test {
   #[test]
   fn test_expect_fn_declare() {
     for (code, is_expected_success, fname, retval) in [
-      ("fn main()->i32{return 0}", true, "main", 0),
-      ("fn      func ( ) -> i32 { return 128 }", true, "func", 128),
-      ("fnmain() { return 0 }", false, "", 0),
-      ("fn main) { return 0 }", false, "", 0),
-      ("fn main() - > i32 { return 0 }", false, "", 0),
+      ("fn main()->i32{ret 0}", true, "main", 0),
+      ("fn      func ( ) -> i32 { ret 128 }", true, "func", 128),
+      ("fnmain() { ret 0 }", false, "", 0),
+      ("fn main) { ret 0 }", false, "", 0),
+      ("fn main() - > i32 { ret 0 }", false, "", 0),
     ] {
       let func = match expect_fn_declaration(&mut SourceCode::new(code)) {
         Ok(res) => {
@@ -433,9 +433,9 @@ mod test {
   #[test]
   fn test_expect_return() {
     for (code, is_expected_success, retval) in [
-      ("return 0", true, 0),
-      ("return    128", true, 128),
-      ("return0", false, 0),
+      ("ret 0", true, 0),
+      ("ret    128", true, 128),
+      ("ret0", false, 0),
     ] {
       let Ok(res) = expect_return(&mut SourceCode::new(&code)) else {
         if is_expected_success {

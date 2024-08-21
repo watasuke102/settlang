@@ -61,21 +61,21 @@ fn main() {
     // basic
     r"
 fn main() -> i32 {
-  return 0
+  ret 0
 }
 ",
     // no main
     r"
-return 2
+ret 2
 ",
     r"
 fn f1() -> i32 {
-  return 1
+  ret 1
 }
 fn f2() -> i32 {
-  return 2
+  ret 2
 }
-return f1() + f2() * 3
+ret f1() + f2() * 3
 ",
     // nest
     r"
@@ -119,7 +119,7 @@ fn test() {
   let value: i32 = 0
 }
 fn expr() {
-  return
+  ret
     10+20
     -
     # comment is treated as spaces
@@ -134,12 +134,12 @@ fn inside_comment() {
     r"
 fn add_2a_b(a: i32, b: i32) -> i64 {
   let a: i64 = a*2 # shadowing
-  return a+b
+  ret a+b
 }
 fn variables() -> i32 {
   let a: i32 = 10
   let b: i32 = 5
-  return a + b*2 + add_2a_b(5, b)
+  ret a + b*2 + add_2a_b(5, b)
 }
     ",
     // errors
@@ -156,17 +156,17 @@ fn main() {}
 (3)
 (4)
 (5)
-return 0
+ret 0
 ",
     "fn main(){}let x:i32 = 0",
     r"
-fn no_return_type_but_has_return() { return 0 }
+fn no_return_type_but_has_return() { ret 0 }
 fn voidfunc(){}
 voidfunc() # ok
 # fn f() {}  fn f() -> i32 {}
 let x: WrongType = 0
 call_f()
-return variable
+ret variable
 voidfunc() + 1 # ??
 (2)
 ",

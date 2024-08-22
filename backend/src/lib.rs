@@ -5,6 +5,7 @@ use tokenizer::StatementKind;
 
 mod compile;
 mod error;
+mod leb128;
 mod parser;
 mod source_code;
 mod tokenizer;

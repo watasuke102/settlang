@@ -140,14 +140,14 @@ pub struct Function {
 
 #[derive(Debug, Clone)]
 pub struct Variable {
-  idx:           usize,
-  name:          String,
-  vartype:       Type,
-  initial_value: Expression,
+  pub idx:           usize,
+  name:              String,
+  pub vartype:       Type,
+  pub initial_value: Expression,
 }
 
 #[derive(Debug)]
-enum Statement {
+pub enum Statement {
   ExprStatement(Expression),
   Return(Expression),
 }
@@ -166,9 +166,9 @@ pub enum ExprCommand {
 }
 // express Expressions by stack machine
 #[derive(Debug, Clone)]
-struct Expression {
-  expr_stack:  Vec<ExprCommand>,
-  result_type: Type,
+pub struct Expression {
+  pub expr_stack:  Vec<ExprCommand>,
+  pub result_type: Type,
 }
 impl Expression {
   fn arg(idx: usize, result_type: Type) -> Self {

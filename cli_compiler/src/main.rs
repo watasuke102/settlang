@@ -5,7 +5,7 @@ fn main() {
     // basic
     r"
 fn main() -> i32 {
-  ret 0
+  ret 1+1
 }
 ",
     // no main
@@ -84,6 +84,9 @@ fn variables() -> i32 {
   let a: i32 = 10
   let b: i32 = 5
   ret a + b*2 + add_2a_b(5, b)
+}
+fn main() -> i32 {
+  ret variables()
 }
     ",
     // errors

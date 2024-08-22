@@ -136,8 +136,16 @@ fn f(){}
     // so print `input{}`, not `input\n{}`
     println!("=== input : ```{}```", code);
     println!("=== compile result");
-    let program = match backend::compile(code.to_string()) {
-      Ok(program) => program,
+    let mut code = backend::source_code::SourceCode::new(code);
+    let program = match backend::compile(&mut code) {
+      Ok(program) => {
+        if code.remaining_len() == 0 {
+          println!("[error] code is not consumed entierly");
+          println!("        remaining=```{}```", code.remaining_code());
+          continue;
+        }
+        program
+      }
       Err(error) => {
         println!("{}", error);
         continue;

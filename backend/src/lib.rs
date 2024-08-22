@@ -8,7 +8,7 @@ mod compile;
 mod error;
 mod leb128;
 mod parser;
-mod source_code;
+pub mod source_code;
 mod tokenizer;
 
 fn _print_statement(statement: &StatementKind, indent: usize) {
@@ -58,10 +58,9 @@ fn _print_statement(statement: &StatementKind, indent: usize) {
   }
 }
 
-pub fn compile(code: String) -> Result<Program, String> {
-  let mut code = SourceCode::new(code.as_str());
+pub fn compile(code: &mut SourceCode) -> Result<Program, String> {
   // parse
-  let statements = tokenizer::expect_code(&mut code).or_else(|err| {
+  let statements = tokenizer::expect_code(code).or_else(|err| {
     let error_pos = code.lines_and_cols();
     Err(format!(
       "[error] {} -> {:?}\n{}\nFailed to parse",

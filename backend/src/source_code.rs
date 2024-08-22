@@ -11,48 +11,51 @@ impl SourceCode {
       current_pos: 0,
     }
   }
-  pub fn pos(&self) -> usize {
-    self.current_pos
-  }
   pub fn remaining_len(&self) -> usize {
     self.code.len() - self.current_pos
   }
+  pub fn remaining_code(&self) -> String {
+    self.substr(self.current_pos, self.code.len())
+  }
+  pub(crate) fn pos(&self) -> usize {
+    self.current_pos
+  }
   /// just set current_pos but expected to go back
-  pub fn unwind(&mut self, prev_pos: usize) {
+  pub(crate) fn unwind(&mut self, prev_pos: usize) {
     self.current_pos = prev_pos;
   }
   /// This panics when current_pos is pointing end of code
-  pub fn next(&mut self) {
+  pub(crate) fn next(&mut self) {
     if self.current_pos >= self.code.len() {
       panic!("Called next() but code is terminated");
     }
     self.current_pos += 1;
   }
-  pub fn current(&self) -> Option<char> {
+  pub(crate) fn current(&self) -> Option<char> {
     if self.current_pos >= self.code.len() {
       return None;
     }
     Some(self.code[self.current_pos])
   }
   /// call peak() and next()
-  pub fn pop(&mut self) -> Option<char> {
+  pub(crate) fn pop(&mut self) -> Option<char> {
     let Some(c) = self.current() else {
       return None;
     };
     self.next();
     Some(c)
   }
-  pub fn skip_space(&mut self) -> &mut Self {
+  pub(crate) fn skip_space(&mut self) -> &mut Self {
     use crate::parser::*;
     optional(mul(space()))(self).unwrap();
     self
   }
   /// return code[begin, end)
-  pub fn substr(&self, begin: usize, end: usize) -> String {
+  pub(crate) fn substr(&self, begin: usize, end: usize) -> String {
     String::from_iter(&self.code[begin..end])
   }
   /// show specified lines of code with '^' mark pointing specified cols
-  pub fn pointed_string(&self, pos: &Position) -> String {
+  pub(crate) fn pointed_string(&self, pos: &Position) -> String {
     let line_str = pos.lines.to_string();
     [
       format!(
@@ -72,7 +75,7 @@ impl SourceCode {
     ]
     .join("\n")
   }
-  pub fn ranged_string(&self, begin: &Position, end: &Position) -> String {
+  pub(crate) fn ranged_string(&self, begin: &Position, end: &Position) -> String {
     assert!(begin.lines <= end.lines);
     let max_line_number_len = end.lines.to_string().len();
     let lines: Vec<String> = String::from_iter(self.code.iter())
@@ -92,7 +95,7 @@ impl SourceCode {
       .join("\n")
   }
   /// return current position as lines and rows (1-indexed!)
-  pub fn lines_and_cols(&self) -> Position {
+  pub(crate) fn lines_and_cols(&self) -> Position {
     let mut pos = Position { lines: 1, cols: 1 };
     for i in 0..self.current_pos {
       pos.cols += 1;
@@ -102,10 +105,6 @@ impl SourceCode {
       }
     }
     pos
-  }
-  #[cfg(test)]
-  pub fn remaining_code(&self) -> String {
-    self.substr(self.current_pos, self.code.len())
   }
 }
 

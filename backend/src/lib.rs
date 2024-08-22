@@ -3,6 +3,7 @@ use compile::Program;
 use source_code::SourceCode;
 use tokenizer::StatementKind;
 
+pub mod builder;
 mod compile;
 mod error;
 mod leb128;

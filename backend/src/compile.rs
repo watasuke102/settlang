@@ -18,7 +18,7 @@ fn errors_or<T>(errors: Vec<CompileError>, res: T) -> CompileResult<T> {
 
 #[derive(Debug)]
 pub struct Program {
-  functions: Vec<Function>,
+  pub functions: Vec<Function>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -129,17 +129,17 @@ impl UncompiledFunction {
   }
 }
 #[derive(Debug, Default)]
-struct Function {
-  idx:         usize,
-  name:        String,
-  args:        Vec<Type>,
-  return_type: Type,
-  code:        Vec<Statement>,
-  variables:   Vec<Variable>,
+pub struct Function {
+  pub idx:         usize,
+  pub name:        String,
+  pub args:        Vec<Type>,
+  pub return_type: Type,
+  pub code:        Vec<Statement>,
+  pub variables:   Vec<Variable>,
 }
 
 #[derive(Debug, Clone)]
-struct Variable {
+pub struct Variable {
   idx:           usize,
   name:          String,
   vartype:       Type,

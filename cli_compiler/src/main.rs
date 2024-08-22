@@ -1,5 +1,7 @@
+use std::io::Write;
+
 fn main() {
-  for code in [
+  for (i, code) in [
     // basic
     r"
 fn main() -> i32 {
@@ -122,15 +124,32 @@ fn f(){}
   +
   1
 9",
-  ] {
+  ]
+  .iter()
+  .enumerate()
+  {
     println!("----------------------------------------------");
     // basically above examples start with '\n'
     // so print `input{}`, not `input\n{}`
     println!("=== input : ```{}```", code);
     println!("=== compile result");
-    match backend::compile(code.to_string()) {
-      Ok(program) => println!("Succeeded to compile || {:#?}", program),
-      Err(error) => println!("{}", error),
+    let program = match backend::compile(code.to_string()) {
+      Ok(program) => program,
+      Err(error) => {
+        println!("{}", error);
+        continue;
+      }
+    };
+    println!("Succeeded to compile || {:#?}", program);
+    match backend::builder::wasm::build(program) {
+      Ok(wasm) => {
+        let filename = format!("out/{}.wasm", i);
+        match std::fs::File::create(&filename).and_then(|mut file| file.write_all(&wasm)) {
+          Ok(_) => println!("Saved as '{}'", filename),
+          Err(e) => println!("Failed to save WASM file : {:?}", e),
+        }
+      }
+      Err(error) => println!("Failed to build WASM file : {}", error),
     }
   }
 }

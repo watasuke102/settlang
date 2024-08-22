@@ -141,7 +141,6 @@ pub struct Function {
 #[derive(Debug, Clone)]
 pub struct Variable {
   pub idx:           usize,
-  name:              String,
   pub vartype:       Type,
   pub initial_value: Expression,
 }
@@ -573,7 +572,6 @@ impl Function {
   ) {
     let var = Variable {
       idx: self.variables.len(),
-      name: name.clone(),
       vartype,
       initial_value,
     };
@@ -610,7 +608,6 @@ mod test {
       varname.clone(),
       Variable {
         idx:           0,
-        name:          varname.clone(),
         vartype:       Type::I32,
         initial_value: Expression {
           expr_stack:  vec![ExprCommand::PushImm(var_value)],

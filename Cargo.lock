@@ -12,3 +12,10 @@ version = "0.1.0"
 dependencies = [
  "backend",
 ]
+
+[[package]]
+name = "playground_compiler"
+version = "0.1.0"
+dependencies = [
+ "backend",
+]

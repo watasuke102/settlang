@@ -139,7 +139,7 @@ fn f(){}
     let mut code = backend::source_code::SourceCode::new(code);
     let program = match backend::compile(&mut code) {
       Ok(program) => {
-        if code.remaining_len() == 0 {
+        if code.remaining_len() != 0 {
           println!("[error] code is not consumed entierly");
           println!("        remaining=```{}```", code.remaining_code());
           continue;

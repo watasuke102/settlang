@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="https://unpkg.com/@acab/reset.css@0.10.0/index.css" />
+    <title>Settlang Playground</title>
+  </head>
+  <body>
+    <main id="app">
+      <div id="landing">
+        <div id="playground">
+          <div class="heading_and_button">
+            <span class="heading">input</span>
+            <button id="run" disabled>Loading...</button>
+          </div>
+          <textarea id="input_area">
+#*
+  Settlang minimal example
+*#
+fn a_plus_2b(a: i32, b: i32) -> i64 {
+  let b: i32 = 2*b # shadowing
+  ret a+b
+}
+fn variables() -> i32 {
+  let a: i32 = 10
+  let b: i32 = 5
+  ret a + a_plus_2b(a, b)
+}
+# function named `main` is entrypoint
+fn main() -> i32 {
+  ret variables()
+}
+</textarea
+          >
+          <h2>output</h2>
+          <textarea id="output_area" rows="8" readonly></textarea>
+        </div>
+        <div id="langdesc">
+          <h1>Settlang</h1>
+        </div>
+      </div>
+    </main>
+    <script type="module" src="/main.js"></script>
+  </body>
+</html>

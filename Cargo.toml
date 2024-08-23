@@ -3,6 +3,7 @@ resolver = "2"
 members = [
   "backend",
   "cli_compiler",
+  "playground_compiler",
 ]
 
 [workspace.package]

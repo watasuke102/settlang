@@ -17,7 +17,6 @@ h1 {
 }
 button {
   border-radius: 2px;
-  font-size: 1.2em;
   padding: 4px 16px;
   text-align: center;
   color: #282c34;
@@ -52,7 +51,7 @@ textarea {
   justify-content: space-between;
 }
 .heading {
-  font-size: 1.5em;
+  font-size: 1.4em;
   font-weight: bold;
 }
 #input_area {

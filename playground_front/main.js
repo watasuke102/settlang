@@ -3,7 +3,8 @@ import './style.css';
 async function init() {
   const btn = document.getElementById('run');
   const output_area = document.getElementById('output_area');
-  if (!btn || !output_area) {
+  const input_area = document.getElementById('input_area');
+  if (!btn || !output_area || !input_area) {
     throw new Error();
   }
 
@@ -25,12 +26,9 @@ async function init() {
     return;
   }
 
-  btn.removeAttribute('disabled');
-  btn.innerText = 'Run';
-  btn.onclick = async () => {
+  const execute = async () => {
     try {
       // get input and store it to memory
-      const input_area = document.getElementById('input_area');
       output_area.innerHTML = '';
       const encoder = new TextEncoder();
       const input = encoder.encode(input_area.value);
@@ -68,6 +66,14 @@ async function init() {
       output_area.innerHTML = '[error] failed to execute : ' + e;
     }
   };
+  btn.removeAttribute('disabled');
+  btn.innerText = 'Run (Ctrl+Enter)';
+  btn.onclick = execute;
+  input_area.addEventListener('keydown', e => {
+    if (e.ctrlKey && e.code === 'Enter') {
+      execute();
+    }
+  });
 }
 
 init();

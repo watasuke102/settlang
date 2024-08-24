@@ -313,51 +313,55 @@ impl ExprElement {
     }
   }
 }
-// <expr> = <expr-secondary> ('+' <expr-secondary> | '-' <expr-secondary>)*
+
+// FIXME (?) : [(char('+'), ExprElement::Add), (char('-'), ExprElement::Sub)] is INVALID
 fn expect_expression(code: &mut SourceCode) -> TokenizeResult<Expression> {
   let begin = code.lines_and_cols();
-  let mut expr = expect_expr_secondary(code)?;
-  loop {
+  let mut expr = expect_expr_mul(code)?;
+
+  let tester = [char('+'), char('-')];
+  let constructor = [ExprElement::Add, ExprElement::Sub];
+  'outer: loop {
     let initial_pos = code.pos();
-    if char('+')(code.skip_space()).is_ok() {
-      let second_expr = expect_expr_secondary(code.skip_space())?;
-      expr = ExprElement::Add(Box::new(expr), Box::new(second_expr));
-    } else if char('-')(code.skip_space()).is_ok() {
-      let second_expr = expect_expr_secondary(code.skip_space())?;
-      expr = ExprElement::Sub(Box::new(expr), Box::new(second_expr));
-    } else {
-      code.unwind(initial_pos);
-      break;
+    for i in 0..tester.len() {
+      let (test, make_element) = (&tester[i], &constructor[i]);
+      if test(code.skip_space()).is_ok() {
+        let second_expr = expect_expr_mul(code.skip_space())?;
+        expr = make_element(Box::new(expr), Box::new(second_expr));
+        continue 'outer;
+      }
     }
+    code.unwind(initial_pos);
+    break;
   }
+
   return Ok(Expression {
     element: expr,
     begin,
     end: code.lines_and_cols(),
   });
 
-  // <expr-secondary> = <expr-primary> ( ('*' | '/' | '%') <expr-primary> )*
-  fn expect_expr_secondary(code: &mut SourceCode) -> TokenizeResult<ExprElement> {
+  fn expect_expr_mul(code: &mut SourceCode) -> TokenizeResult<ExprElement> {
     let mut expr = expect_expr_primary(code)?;
-    loop {
+
+    let tester = [char('*'), char('/'), char('%')];
+    let constructor = [ExprElement::Mul, ExprElement::Div, ExprElement::Mod];
+    'outer: loop {
       let initial_pos = code.pos();
-      if char('*')(code.skip_space()).is_ok() {
-        let second_expr = expect_expr_primary(code.skip_space())?;
-        expr = ExprElement::Mul(Box::new(expr), Box::new(second_expr));
-      } else if char('/')(code.skip_space()).is_ok() {
-        let second_expr = expect_expr_primary(code.skip_space())?;
-        expr = ExprElement::Div(Box::new(expr), Box::new(second_expr));
-      } else if char('%')(code.skip_space()).is_ok() {
-        let second_expr = expect_expr_primary(code.skip_space())?;
-        expr = ExprElement::Mod(Box::new(expr), Box::new(second_expr));
-      } else {
-        code.unwind(initial_pos);
-        break;
+      for i in 0..tester.len() {
+        let (test, make_element) = (&tester[i], &constructor[i]);
+        if test(code.skip_space()).is_ok() {
+          let second_expr = expect_expr_primary(code.skip_space())?;
+          expr = make_element(Box::new(expr), Box::new(second_expr));
+          continue 'outer;
+        }
       }
+      code.unwind(initial_pos);
+      break;
     }
+
     Ok(expr)
   }
-  // <expr-primary> = <constant> | '(' <expr> ')'
   fn expect_expr_primary(code: &mut SourceCode) -> TokenizeResult<ExprElement> {
     if char('(')(code).is_ok() {
       let Ok(expr) = expect_expression(code.skip_space()) else {

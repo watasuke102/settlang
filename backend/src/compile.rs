@@ -856,25 +856,3 @@ mod test {
     }
   }
 }
-
-// Show result (temporary; for testing)
-fn _debug_log_uncompiled_functions(uncompiled_functions: &Vec<UncompiledFnCarrier>) {
-  for f in uncompiled_functions {
-    fn map_to_strings(m: &HashMap<String, UncompiledFnCarrier>) -> String {
-      m.iter()
-        .map(|f| format!("'{}'={}, ", f.0, f.1.borrow().idx))
-        .collect()
-    }
-    let f = f.borrow();
-    println!(
-      "{:2} : '{}', owned = {:<16} samelevel = {:<16}, parent:{:?}",
-      f.idx,
-      f.name,
-      map_to_strings(&f.owning_func),
-      map_to_strings(&f.same_level_func),
-      f.parent
-        .as_ref()
-        .and_then(|f| Some(f.borrow().name.clone())),
-    );
-  }
-}

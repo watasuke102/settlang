@@ -1,6 +1,7 @@
 use std::{
   cell::{Ref, RefCell},
   collections::{HashMap, VecDeque},
+  fmt,
   ops::Deref,
   rc::Rc,
 };
@@ -140,18 +141,37 @@ pub struct Function {
   pub variables:   Vec<Variable>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Variable {
   pub idx:           usize,
   pub vartype:       Type,
-  pub setter:        Option<usize>,
+  setter:            Option<UncompiledFnCarrier>,
   pub initial_value: Expression,
+}
+impl fmt::Debug for Variable {
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    write!(
+      f,
+      "[{}: {:?}, initial={:?}, setter={:?}]",
+      self.idx,
+      self.vartype,
+      self.initial_value,
+      self.setter.as_ref().and_then(|f| Some(f.borrow().idx))
+    )
+  }
 }
 
 #[derive(Debug)]
 pub enum Statement {
   ExprStatement(Expression),
   Return(Expression),
+  SetterCall(MutationInfo),
+}
+#[derive(Debug)]
+pub struct MutationInfo {
+  pub setter:    usize,
+  pub var:       usize,
+  pub arg_stack: Vec<ExprCommand>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -243,6 +263,7 @@ impl Expression {
         }
         expr_stack.push(push_if_succeed);
       };
+
     use tokenizer::ExprElement::*;
     match &token.element {
       Add(lhs, rhs) => extract(lhs.deref(), rhs.deref(), ExprCommand::Add),
@@ -276,30 +297,18 @@ impl Expression {
           ));
           break 'fn_call;
         }
-
-        let mut failed = false;
-        let mut arguments_expr = Vec::new();
-        for (i, arg_expr) in arguments.iter().enumerate() {
-          match Expression::from_token(arg_expr, var_in_scope, get_accessible_fn_by_name) {
-            Ok(mut expr) => {
-              if expr.result_type != called_fn.args[i].vartype {
-                expr.expr_stack.push(ExprCommand::Cast(
-                  expr.result_type.clone(),
-                  called_fn.args[i].vartype.clone(),
-                ));
-              }
-              arguments_expr.append(&mut expr.expr_stack);
-            }
-            Err(mut err) => {
-              failed = true;
-              errors.append(&mut err);
-            }
+        match exprcomand_from_token_vec(
+          arguments,
+          &called_fn,
+          var_in_scope,
+          get_accessible_fn_by_name,
+        ) {
+          Ok(mut expr) => {
+            expr_stack.append(&mut expr);
+            expr_stack.push(ExprCommand::FnCall(called_fn.idx));
+            result_type = called_fn.return_type.clone();
           }
-        }
-        if !failed {
-          expr_stack.append(&mut arguments_expr);
-          expr_stack.push(ExprCommand::FnCall(called_fn.idx));
-          result_type = called_fn.return_type.clone();
+          Err(mut e) => errors.append(&mut e),
         }
       }
     }
@@ -312,6 +321,32 @@ impl Expression {
       },
     )
   }
+}
+fn exprcomand_from_token_vec(
+  token_vec: &Vec<tokenizer::Expression>,
+  callee: &Ref<UncompiledFunction>,
+  var_in_scope: &HashMap<String, Variable>,
+  get_accessible_fn_by_name: &AccessibleFnGetter,
+) -> CompileResult<Vec<ExprCommand>> {
+  let mut errors = Vec::new();
+  let mut arguments_expr = Vec::new();
+  for (i, arg_expr) in token_vec.iter().enumerate() {
+    match Expression::from_token(arg_expr, var_in_scope, get_accessible_fn_by_name) {
+      Ok(mut expr) => {
+        if expr.result_type != callee.args[i].vartype {
+          expr.expr_stack.push(ExprCommand::Cast(
+            expr.result_type.clone(),
+            callee.args[i].vartype.clone(),
+          ));
+        }
+        arguments_expr.append(&mut expr.expr_stack);
+      }
+      Err(mut err) => {
+        errors.append(&mut err);
+      }
+    }
+  }
+  errors_or(errors, arguments_expr)
 }
 
 /// enumerate same level functions like Breadth-First Search
@@ -566,6 +601,39 @@ impl Function {
           }
           func.code.push(Statement::Return(retval));
         }
+        SetterCall(setter_call) => 'match_block: {
+          // get variable that will be mutated
+          let Some(var) = var_in_scope.get(&setter_call.varname) else {
+            errors.push(CompileError::UndefinedVariable(
+              setter_call.varname.clone(),
+              statement.begin,
+            ));
+            break 'match_block;
+          };
+          // get function that is treated as setter
+          let Some(ref setter) = var.setter else {
+            errors.push(CompileError::TryMutateImmutableVar(
+              setter_call.varname.clone(),
+              statement.begin,
+            ));
+            break 'match_block;
+          };
+          let setter = setter.borrow();
+          // prepare arguments of setter
+          match exprcomand_from_token_vec(
+            &setter_call.args,
+            &setter,
+            &var_in_scope,
+            &get_accessible_fn_by_name,
+          ) {
+            Ok(arg_stack) => func.code.push(Statement::SetterCall(MutationInfo {
+              setter: setter.idx,
+              var: var.idx,
+              arg_stack,
+            })),
+            Err(mut e) => errors.append(&mut e),
+          }
+        }
       }
     }
 
@@ -593,23 +661,24 @@ impl Function {
     let mut var = Variable {
       idx: self.variables.len(),
       vartype: vartype.clone(),
-      setter: None,
+      setter: None, // temporally
       initial_value,
     };
     let retval =
       setter.as_ref().and_then(
         |setter| match uncompiled.get_accessible_fn_by_name(&setter.name) {
           Some(setter_func) => {
-            let setter_func = setter_func.borrow();
+            let borrowed_setter_func = setter_func.borrow();
             // return type of Setter must be matched with variable type
-            if setter_func.return_type == vartype {
-              var.setter = Some(setter_func.idx);
+            if borrowed_setter_func.return_type == vartype {
+              var.setter = Some(setter_func.clone());
               None
             } else {
               Some(CompileError::MismatchSetterReturnType(
                 setter.name.clone(),
+                name.clone(),
                 vartype.clone(),
-                setter_func.return_type.clone(),
+                borrowed_setter_func.return_type.clone(),
                 setter.pos,
               ))
             }

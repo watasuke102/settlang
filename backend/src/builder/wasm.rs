@@ -90,6 +90,16 @@ fn code_section_contents(functions: &Vec<compile::Function>) -> Result<Vec<u8>, 
           expr.append(&mut assemble_expr(&e.expr_stack)?);
           expr.push(Inst::Return as u8);
         }
+        SetterCall(mutate_info) => {
+          // push arguments
+          expr.append(&mut assemble_expr(&mutate_info.arg_stack)?);
+          // call function as setter; top of the stack will become a new value of variable
+          expr.push(Inst::Call as u8);
+          expr.append(&mut to_signed_leb128(mutate_info.setter as i64));
+          // mutate local (variable)
+          expr.push(Inst::LocalSet as u8);
+          expr.append(&mut to_signed_leb128(mutate_info.var as i64));
+        }
       }
     }
 

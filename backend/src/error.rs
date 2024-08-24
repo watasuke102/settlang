@@ -41,7 +41,14 @@ pub enum CompileError {
     source_code::Position,
     source_code::Position,
   ),
-  // setter name, vartype, setter retval type
-  MismatchSetterReturnType(String, compile::Type, compile::Type, source_code::Position),
+  // setter name, varname, vartype, setter retval type
+  MismatchSetterReturnType(
+    String,
+    String,
+    compile::Type,
+    compile::Type,
+    source_code::Position,
+  ),
+  TryMutateImmutableVar(String, source_code::Position),
   GlobalStatementWithMain(Vec<usize>),
 }

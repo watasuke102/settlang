@@ -3,8 +3,6 @@ BACKEND_SRC = $(shell find backend -name '*.rs')
 all: playground
 playground: $(COMPILER)
 
-$(warning $(BACKEND_SRC))
-
 $(COMPILER): playground_compiler/src/lib.rs $(BACKEND_SRC)
 	cargo build --target=wasm32-unknown-unknown --release -p playground_compiler
 	@cp -v target/wasm32-unknown-unknown/release/playground_compiler.wasm $@

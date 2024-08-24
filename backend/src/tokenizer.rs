@@ -11,6 +11,7 @@ type TokenizeResult<'s, T> = Result<T, TokenizeError>;
 pub enum StatementKind {
   FnDecl(Function),
   VarDecl(Variable),
+  SetterCall(SetterCall),
   ExprStatement(Expression),
   Return(Option<Expression>),
 }
@@ -77,6 +78,17 @@ fn expect_statement(code: &mut SourceCode) -> TokenizeResult<Statement> {
     Err(TokenizeError::NoMatch) => (),
     Err(e) => return Err(e),
   }
+  match expect_setter_call(code) {
+    Ok(res) => {
+      return Ok(Statement {
+        kind:  StatementKind::SetterCall(res),
+        begin: pos,
+        end:   code.lines_and_cols(),
+      })
+    }
+    Err(TokenizeError::NoMatch) => (),
+    Err(e) => return Err(e),
+  }
   match expect_expression(code) {
     Ok(res) => {
       return Ok(Statement {
@@ -100,6 +112,52 @@ fn expect_return(code: &mut SourceCode) -> TokenizeResult<Option<Expression>> {
     Err(TokenizeError::NoMatch) => Ok(None),
     Err(e) => Err(e),
   }
+}
+
+#[derive(Debug, Clone)]
+pub struct SetterCall {
+  pub varname: String,
+  pub args:    Vec<Expression>,
+}
+fn expect_setter_call(code: &mut SourceCode) -> TokenizeResult<SetterCall> {
+  let initial_pos = code.pos();
+  let varname = expect_identifier(code).or_else(|err| {
+    code.unwind(initial_pos);
+    Err(err)
+  })?;
+  println!("before: {}", code.remaining_code());
+  seq(vec![
+    optional(mul(space())),
+    char('.'),
+    optional(mul(space())),
+    str("set"),
+    optional(mul(space())),
+    char('('),
+  ])(code)
+  .or_else(|_| {
+    println!("remain: {}", code.remaining_code());
+    code.unwind(initial_pos);
+    Err(TokenizeError::NoMatch)
+  })?;
+
+  let mut setter_call = SetterCall {
+    varname,
+    args: Vec::new(),
+  };
+
+  loop {
+    match expect_expression(code.skip_space()) {
+      Ok(expr) => setter_call.args.push(expr),
+      Err(TokenizeError::NoMatch) => break,
+      Err(e) => return Err(e),
+    }
+    if char(',')(code.skip_space()).is_err() {
+      break;
+    }
+  }
+  char(')')(code.skip_space()).or(Err(TokenizeError::UnclosedDelimiter))?;
+
+  Ok(setter_call)
 }
 
 #[derive(Debug, Clone)]
@@ -509,6 +567,52 @@ mod test {
       let expr = expect_return(&mut SourceCode::new(code))
         .unwrap_or_else(|e| panic!("failed to parse '{:?}' as return statement : {:?}", code, e));
       assert!(expr.is_none());
+    }
+  }
+  #[test]
+  fn test_expect_setter_call() {
+    for (code, expect) in [
+      ("a.set(1,2,3,4,5)", Some(("a", vec![1, 2, 3, 4, 5]))),
+      ("var . set()", Some(("var", vec![]))),
+      (
+        r"mulline
+      . set
+      ()",
+        Some(("mulline", vec![])),
+      ),
+      (
+        "trailing_comma.set(0,0,)",
+        Some(("trailing_comma", vec![0, 0])),
+      ),
+      ("unclosed.set(", None),
+      (".set()", None),
+    ] {
+      println!("=========== code: `{}`", code);
+      let (parsed_setter_call, (varname, args)) =
+        match expect_setter_call(&mut SourceCode::new(code)) {
+          Ok(res) => {
+            if let Some(expect) = expect {
+              (res, expect)
+            } else {
+              panic!("code `{}` is expected to fail but it succeeded", code);
+            }
+          }
+          Err(err) => {
+            if expect.is_some() {
+              panic!(
+                "code `{}` is expected to succeed but it fails ({:?})",
+                code, err
+              );
+            } else {
+              continue;
+            }
+          }
+        };
+      assert_eq!(&parsed_setter_call.varname, varname);
+      assert_eq!(parsed_setter_call.args.len(), args.len());
+      for i in 0..args.len() {
+        assert_eq!(parsed_setter_call.args[i].element._eval().unwrap(), args[i]);
+      }
     }
   }
   #[test]

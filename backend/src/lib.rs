@@ -49,6 +49,17 @@ fn _print_statement(statement: &StatementKind, indent: usize) {
         expr.element._eval()
       )
     }
+    StatementKind::SetterCall(setter_call) => println!(
+      "{}[set] {} = {:?}",
+      indent_space,
+      setter_call.varname,
+      setter_call
+        .args
+        .iter()
+        .map(|e| format!("{:?}", e.element))
+        .collect::<Vec<String>>()
+        .join(", "),
+    ),
     StatementKind::Return(retval) => println!(
       "{}[return] retval: {:?} (eval: {:?})",
       indent_space,
@@ -123,9 +134,10 @@ pub fn compile(code: &mut SourceCode) -> Result<Program, String> {
           to,
           code.ranged_string(begin, end)
         ),
-        MismatchSetterReturnType(setter_name, vartype, setter_retval_type, pos) => format!(
-          "[error] {} -> variable type is {:?} but setter function '{}' returns {:?}\n{}",
+        MismatchSetterReturnType(setter_name,varname, vartype, setter_retval_type, pos) => format!(
+          "[error] {} -> variable '{}' is {:?} but setter function '{}' returns {:?}\n{}",
           pos,
+          varname,
           vartype,
           setter_name,
           setter_retval_type,
@@ -138,6 +150,12 @@ pub fn compile(code: &mut SourceCode) -> Result<Program, String> {
         actual,
         code.ranged_string(begin, end)
       ),
+        TryMutateImmutableVar(varname, pos) => format!(
+          "[error] {} -> try to mutate the variable '{}' but it is immutable (does not have setter)\n{}",
+          pos,
+          varname,
+          code.pointed_string(pos)
+        ),
         GlobalStatementWithMain(lines) => {
           let lines = lines
             .into_iter()

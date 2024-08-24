@@ -134,11 +134,16 @@ fn main() -> i32 {
     r"
 fn main() -> i32 {
   let x: i32 | double = 10 # x is 10; initialize and assignment is different
-  # x.set(x) # todo, x will become 20
-  ret x # 
+  x.set(x) # todo, x will become 20
+  let one: i32 | set_one = 0
+  one.set() # one will become 1
+  ret x+one # 20 + 1
 }
-fn double(in: i32) -> i64 {
+fn double(in: i32) -> i32 {
   ret in*2
+}
+fn set_one() -> i32 {
+  ret 1
 }
 ",
   ]

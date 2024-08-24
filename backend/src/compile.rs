@@ -157,6 +157,7 @@ pub enum ExprCommand {
   Sub,
   Mul,
   Div,
+  Mod,
   Cast(Type, Type), // from, to
   PushImm(i32),
   PushVar(usize),
@@ -245,6 +246,7 @@ impl Expression {
       Sub(lhs, rhs) => extract(lhs.deref(), rhs.deref(), ExprCommand::Sub),
       Mul(lhs, rhs) => extract(lhs.deref(), rhs.deref(), ExprCommand::Mul),
       Div(lhs, rhs) => extract(lhs.deref(), rhs.deref(), ExprCommand::Div),
+      Mod(lhs, rhs) => extract(lhs.deref(), rhs.deref(), ExprCommand::Mod),
       Constant(v) => {
         result_type = Type::I32;
         expr_stack.push(ExprCommand::PushImm(*v));

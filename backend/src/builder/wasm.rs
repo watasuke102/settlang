@@ -122,6 +122,10 @@ fn assemble_expr(commands: &Vec<compile::ExprCommand>) -> Result<Vec<u8>, String
         Numtype::I32 => Inst::DivSignedI32,
         Numtype::I64 => Inst::DivSignedI64,
       } as u8),
+      Mod => res.push(match current_type {
+        Numtype::I32 => Inst::RemSignedI32,
+        Numtype::I64 => Inst::RemSignedI64,
+      } as u8),
       PushImm(imm) => {
         res.push(Inst::ConstI32 as u8);
         res.append(&mut to_signed_leb128(*imm as i64))
@@ -142,7 +146,7 @@ fn assemble_expr(commands: &Vec<compile::ExprCommand>) -> Result<Vec<u8>, String
         res.push(Inst::WrapI64ToI32 as u8);
         current_type = Numtype::I32;
       }
-      command => return Err(format!("Unknown command : {:?}", command)),
+      Cast(_, _) => return Err(format!("Unknown command : {:?}", command)),
     }
   }
   Ok(res)
@@ -178,10 +182,12 @@ enum Inst {
   SubI32               = 0x6b,
   MulI32               = 0x6c,
   DivSignedI32         = 0x6d,
+  RemSignedI32         = 0x6f,
   AddI64               = 0x7c,
   SubI64               = 0x7d,
   MulI64               = 0x7e,
   DivSignedI64         = 0x7f,
   WrapI64ToI32         = 0xa7,
+  RemSignedI64         = 0x81,
   ExtendSignedI32ToI64 = 0xac,
 }

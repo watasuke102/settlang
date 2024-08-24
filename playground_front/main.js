@@ -10,7 +10,6 @@ async function init() {
   const compiler = await (async () => {
     try {
       const res = await fetch('/compiler.wasm');
-      console.log(res);
       if (!res.ok || !res.body || res.body instanceof ReadableStream === false) {
         output.innerText = 'Failed to load : invalid response';
         return null;
@@ -65,7 +64,9 @@ async function init() {
         /* TODO: stdlib */
       });
       output_area.innerHTML = 'result=' + generaged.instance.exports.main();
-    } catch (e) {}
+    } catch (e) {
+      output_area.innerHTML = '[error] failed to execute : ' + e;
+    }
   };
 }
 

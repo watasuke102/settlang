@@ -219,6 +219,7 @@ pub enum ExprElement {
   Sub(Box<ExprElement>, Box<ExprElement>),
   Mul(Box<ExprElement>, Box<ExprElement>),
   Div(Box<ExprElement>, Box<ExprElement>),
+  Mod(Box<ExprElement>, Box<ExprElement>),
 }
 impl ExprElement {
   // this function is used for test so basically raise warning (unused function)
@@ -230,6 +231,7 @@ impl ExprElement {
       Sub(lhs, rhs) => Ok(lhs._eval()? - rhs._eval()?),
       Mul(lhs, rhs) => Ok(lhs._eval()? * rhs._eval()?),
       Div(lhs, rhs) => Ok(lhs._eval()? / rhs._eval()?),
+      Mod(lhs, rhs) => Ok(lhs._eval()? % rhs._eval()?),
       _ => Err(()),
     }
   }
@@ -257,7 +259,7 @@ fn expect_expression(code: &mut SourceCode) -> TokenizeResult<Expression> {
     end: code.lines_and_cols(),
   });
 
-  // <expr-secondary> = <expr-primary> ('*' <expr-primary> | '/' <expr-primary>)*
+  // <expr-secondary> = <expr-primary> ( ('*' | '/' | '%') <expr-primary> )*
   fn expect_expr_secondary(code: &mut SourceCode) -> TokenizeResult<ExprElement> {
     let mut expr = expect_expr_primary(code)?;
     loop {
@@ -268,6 +270,9 @@ fn expect_expression(code: &mut SourceCode) -> TokenizeResult<Expression> {
       } else if char('/')(code.skip_space()).is_ok() {
         let second_expr = expect_expr_primary(code.skip_space())?;
         expr = ExprElement::Div(Box::new(expr), Box::new(second_expr));
+      } else if char('%')(code.skip_space()).is_ok() {
+        let second_expr = expect_expr_primary(code.skip_space())?;
+        expr = ExprElement::Mod(Box::new(expr), Box::new(second_expr));
       } else {
         code.unwind(initial_pos);
         break;
@@ -482,6 +487,7 @@ mod test {
       ("10 + 20", 30),   // basic binary
       ("1+2 * 3", 7),    // mul should be prioritized
       ("2 * (4+6)", 20), // bracket should be prioritized
+      ("2+-10%4", 0),    // signed mod (same behavior with Rust)
       (
         "6
         -2",
@@ -497,7 +503,13 @@ mod test {
       let Ok(expr) = expect_expression(&mut SourceCode::new(code)) else {
         panic!("code `{}` is not parsed as expression", code);
       };
-      assert_eq!(expr.element._eval(), Ok(expect), "(code: {})", code);
+      assert_eq!(
+        expr.element._eval(),
+        Ok(expect),
+        "(code: {}, expr: {:?})",
+        code,
+        expr.element
+      );
     }
   }
   #[test]

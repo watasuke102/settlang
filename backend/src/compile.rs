@@ -265,7 +265,9 @@ impl Expression {
       };
 
     use tokenizer::ExprElement::*;
+    #[allow(unreachable_patterns)]
     match &token.element {
+      _ => todo!(),
       Add(lhs, rhs) => extract(lhs.deref(), rhs.deref(), ExprCommand::Add),
       Sub(lhs, rhs) => extract(lhs.deref(), rhs.deref(), ExprCommand::Sub),
       Mul(lhs, rhs) => extract(lhs.deref(), rhs.deref(), ExprCommand::Mul),

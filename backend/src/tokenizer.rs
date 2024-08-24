@@ -292,11 +292,20 @@ pub enum ExprElement {
   Constant(i32),
   Variable(String, source_code::Position),
   FnCall(String, Vec<Expression>, source_code::Position),
-  Add(Box<ExprElement>, Box<ExprElement>),
-  Sub(Box<ExprElement>, Box<ExprElement>),
+
   Mul(Box<ExprElement>, Box<ExprElement>),
   Div(Box<ExprElement>, Box<ExprElement>),
   Mod(Box<ExprElement>, Box<ExprElement>),
+  Add(Box<ExprElement>, Box<ExprElement>),
+  Sub(Box<ExprElement>, Box<ExprElement>),
+  Less(Box<ExprElement>, Box<ExprElement>),
+  LessEq(Box<ExprElement>, Box<ExprElement>),
+  Greater(Box<ExprElement>, Box<ExprElement>),
+  GreaterEq(Box<ExprElement>, Box<ExprElement>),
+  Eq(Box<ExprElement>, Box<ExprElement>),
+  NonEq(Box<ExprElement>, Box<ExprElement>),
+  LogicAnd(Box<ExprElement>, Box<ExprElement>),
+  LogicOr(Box<ExprElement>, Box<ExprElement>),
 }
 impl ExprElement {
   // this function is used for test so basically raise warning (unused function)
@@ -309,6 +318,14 @@ impl ExprElement {
       Mul(lhs, rhs) => Ok(lhs._eval()? * rhs._eval()?),
       Div(lhs, rhs) => Ok(lhs._eval()? / rhs._eval()?),
       Mod(lhs, rhs) => Ok(lhs._eval()? % rhs._eval()?),
+      Eq(lhs, rhs) => Ok((lhs._eval()? == rhs._eval()?) as i32),
+      NonEq(lhs, rhs) => Ok((lhs._eval()? != rhs._eval()?) as i32),
+      Less(lhs, rhs) => Ok((lhs._eval()? < rhs._eval()?) as i32),
+      LessEq(lhs, rhs) => Ok((lhs._eval()? <= rhs._eval()?) as i32),
+      Greater(lhs, rhs) => Ok((lhs._eval()? > rhs._eval()?) as i32),
+      GreaterEq(lhs, rhs) => Ok((lhs._eval()? >= rhs._eval()?) as i32),
+      LogicAnd(lhs, rhs) => Ok(((lhs._eval()? != 0) && (rhs._eval()? != 0)) as i32),
+      LogicOr(lhs, rhs) => Ok(((lhs._eval()? != 0) || (rhs._eval()? != 0)) as i32),
       _ => Err(()),
     }
   }
@@ -317,30 +334,108 @@ impl ExprElement {
 // FIXME (?) : [(char('+'), ExprElement::Add), (char('-'), ExprElement::Sub)] is INVALID
 fn expect_expression(code: &mut SourceCode) -> TokenizeResult<Expression> {
   let begin = code.lines_and_cols();
-  let mut expr = expect_expr_mul(code)?;
-
-  let tester = [char('+'), char('-')];
-  let constructor = [ExprElement::Add, ExprElement::Sub];
-  'outer: loop {
-    let initial_pos = code.pos();
-    for i in 0..tester.len() {
-      let (test, make_element) = (&tester[i], &constructor[i]);
-      if test(code.skip_space()).is_ok() {
-        let second_expr = expect_expr_mul(code.skip_space())?;
-        expr = make_element(Box::new(expr), Box::new(second_expr));
-        continue 'outer;
-      }
-    }
-    code.unwind(initial_pos);
-    break;
-  }
-
   return Ok(Expression {
-    element: expr,
+    element: expect_expr_logical_or(code)?,
     begin,
     end: code.lines_and_cols(),
   });
 
+  fn expect_expr_logical_or(code: &mut SourceCode) -> TokenizeResult<ExprElement> {
+    let mut expr = expect_expr_logical_and(code)?;
+    loop {
+      let initial_pos = code.pos();
+      if str("||")(code.skip_space()).is_ok() {
+        let second_expr = expect_expr_logical_and(code.skip_space())?;
+        expr = ExprElement::LogicOr(Box::new(expr), Box::new(second_expr));
+      } else {
+        code.unwind(initial_pos);
+        break;
+      }
+    }
+    Ok(expr)
+  }
+  fn expect_expr_logical_and(code: &mut SourceCode) -> TokenizeResult<ExprElement> {
+    let mut expr = expect_expr_eq(code)?;
+    loop {
+      let initial_pos = code.pos();
+      if str("&&")(code.skip_space()).is_ok() {
+        let second_expr = expect_expr_eq(code.skip_space())?;
+        expr = ExprElement::LogicAnd(Box::new(expr), Box::new(second_expr));
+      } else {
+        code.unwind(initial_pos);
+        break;
+      }
+    }
+    Ok(expr)
+  }
+  fn expect_expr_eq(code: &mut SourceCode) -> TokenizeResult<ExprElement> {
+    let mut expr = expect_expr_cmp(code)?;
+
+    let tester = [str("=="), str("!=")];
+    let constructor = [ExprElement::Eq, ExprElement::NonEq];
+    'outer: loop {
+      let initial_pos = code.pos();
+      for i in 0..tester.len() {
+        let (test, make_element) = (&tester[i], &constructor[i]);
+        if test(code.skip_space()).is_ok() {
+          let second_expr = expect_expr_cmp(code.skip_space())?;
+          expr = make_element(Box::new(expr), Box::new(second_expr));
+          continue 'outer;
+        }
+      }
+      code.unwind(initial_pos);
+      break;
+    }
+
+    Ok(expr)
+  }
+  fn expect_expr_cmp(code: &mut SourceCode) -> TokenizeResult<ExprElement> {
+    let mut expr = expect_expr_add(code)?;
+
+    let tester = [str("<="), str(">="), str("<"), str(">")];
+    let constructor = [
+      ExprElement::LessEq,
+      ExprElement::GreaterEq,
+      ExprElement::Less,
+      ExprElement::Greater,
+    ];
+    'outer: loop {
+      let initial_pos = code.pos();
+      for i in 0..tester.len() {
+        let (test, make_element) = (&tester[i], &constructor[i]);
+        if test(code.skip_space()).is_ok() {
+          let second_expr = expect_expr_add(code.skip_space())?;
+          expr = make_element(Box::new(expr), Box::new(second_expr));
+          continue 'outer;
+        }
+      }
+      code.unwind(initial_pos);
+      break;
+    }
+
+    Ok(expr)
+  }
+  fn expect_expr_add(code: &mut SourceCode) -> TokenizeResult<ExprElement> {
+    let mut expr = expect_expr_mul(code)?;
+
+    let tester = [char('+'), char('-')];
+    let constructor = [ExprElement::Add, ExprElement::Sub];
+    'outer: loop {
+      let initial_pos = code.pos();
+      for i in 0..tester.len() {
+        let (test, make_element) = (&tester[i], &constructor[i]);
+        if test(code.skip_space()).is_ok() {
+          let second_expr = expect_expr_mul(code.skip_space())?;
+          expr = make_element(Box::new(expr), Box::new(second_expr));
+          continue 'outer;
+        }
+      }
+      code.unwind(initial_pos);
+      break;
+    }
+
+    Ok(expr)
+  }
   fn expect_expr_mul(code: &mut SourceCode) -> TokenizeResult<ExprElement> {
     let mut expr = expect_expr_primary(code)?;
 
@@ -628,6 +723,7 @@ mod test {
   #[test]
   fn test_expect_expression() {
     for (code, expect) in [
+      // arithmetic operating
       ("111", 111),      // constant
       ("+11", 11),       // positive constant
       ("-1", -1),        // negative constant
@@ -647,10 +743,20 @@ mod test {
         -5",
         5,
       ), // comment is equivalent to space
+      // comparison
+      ("1 == 1", 1),
+      ("1 != 1", 0),
+      ("1 <= 1", 1),
+      ("1 >= 1", 1),
+      ("9 <  2", 0),
+      ("7 >  1", 1),
+      // logical operating
+      ("0 || 1", 1),
+      ("1 && 0", 0),
+      ("true && false || 1+2*4", 1), // rhs of || is true (not zero)
     ] {
-      let Ok(expr) = expect_expression(&mut SourceCode::new(code)) else {
-        panic!("code `{}` is not parsed as expression", code);
-      };
+      let expr = expect_expression(&mut SourceCode::new(code))
+        .unwrap_or_else(|e| panic!("code `{}` is not parsed as expression (err: {:?})", code, e));
       assert_eq!(
         expr.element._eval(),
         Ok(expect),

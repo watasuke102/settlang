@@ -106,27 +106,41 @@ fn expect_return(code: &mut SourceCode) -> TokenizeResult<Option<Expression>> {
 pub struct Variable {
   pub name:          String,
   pub vartype:       Type,
+  pub setter:        Option<Setter>,
   pub initial_value: Expression,
+}
+#[derive(Debug, Clone)]
+pub struct Setter {
+  pub name: String,
+  pub pos:  source_code::Position,
 }
 fn expect_var_declaration(code: &mut SourceCode) -> TokenizeResult<Variable> {
   seq(vec![str("let"), mul(space())])(code).or(Err(TokenizeError::NoMatch))?;
-  let (name, vartype) = expect_var_spec(code)?;
+  let (name, vartype, setter) = expect_var_spec(code)?;
   char('=')(code.skip_space()).or(Err(TokenizeError::Expected("= <initial value>")))?;
   let initial_value = expect_expression(code.skip_space())?;
   Ok(Variable {
     name,
     vartype,
+    setter,
     initial_value,
   })
 }
-/// (variable name, type)
-fn expect_var_spec(code: &mut SourceCode) -> TokenizeResult<(String, Type)> {
+/// (variable name, type, setter)
+fn expect_var_spec(code: &mut SourceCode) -> TokenizeResult<(String, Type, Option<Setter>)> {
   let name = expect_identifier(code)?;
   char(':')(code.skip_space()).or(Err(TokenizeError::Expected(": <type>")))?;
   code.skip_space();
   let pos = code.lines_and_cols();
   let type_ident = expect_identifier(code).or(Err(TokenizeError::ExpectedType))?;
-  Ok((name, Type { type_ident, pos }))
+  let setter = if char('|')(code.skip_space()).is_ok() {
+    let pos = code.skip_space().lines_and_cols();
+    let name = expect_identifier(code).or(Err(TokenizeError::ExpectedFunction))?;
+    Some(Setter { name, pos })
+  } else {
+    None
+  };
+  Ok((name, Type { type_ident, pos }, setter))
 }
 
 #[derive(Debug, Clone)]
@@ -141,6 +155,7 @@ pub struct Function {
 pub struct Argument {
   pub name:    String,
   pub vartype: Type,
+  pub setter:  Option<Setter>,
 }
 fn expect_fn_declaration(code: &mut SourceCode) -> TokenizeResult<Function> {
   seq(vec![str("fn"), mul(space())])(code.skip_space()).or(Err(TokenizeError::NoMatch))?;
@@ -150,8 +165,12 @@ fn expect_fn_declaration(code: &mut SourceCode) -> TokenizeResult<Function> {
   let mut args = Vec::new();
   loop {
     match expect_var_spec(code.skip_space()) {
-      Ok((name, vartype)) => {
-        args.push(Argument { name, vartype });
+      Ok((name, vartype, setter)) => {
+        args.push(Argument {
+          name,
+          vartype,
+          setter,
+        });
       }
       Err(TokenizeError::NoMatch) => break,
       Err(e) => return Err(e),
@@ -354,12 +373,20 @@ mod test {
   #[test]
   fn test_expect_var_declare() {
     for (code, expect) in [
-      ("let name: i32 = 0", Some(("name", "i32", 0))),
-      ("let nospace:i32=10", Some(("nospace", "i32", 10))),
+      ("let name: i32 = 0", Some(("name", "i32", None, 0))),
+      ("let nospace:i32=10", Some(("nospace", "i32", None, 10))),
+      (
+        "let mutable: i64 | setter0 = 0",
+        Some(("mutable", "i64", Some("setter0"), 0)),
+      ),
+      (
+        "let mutable:i64|setter1=1",
+        Some(("mutable", "i64", Some("setter1"), 1)),
+      ),
       ("let no_type = 0", None),
       ("let uninitialized:i32", None),
     ] {
-      let (var, (varname, vartype, initial)) =
+      let (var, (varname, vartype, setter_name, initial)) =
         match expect_var_declaration(&mut SourceCode::new(code)) {
           Ok(res) => {
             if let Some(expect) = expect {
@@ -382,6 +409,10 @@ mod test {
       assert_eq!(var.name, varname);
       assert_eq!(var.vartype.type_ident, vartype);
       assert_eq!(var.initial_value.element._eval().unwrap(), initial);
+      match var.setter {
+        Some(parsed_setter) => assert_eq!(&parsed_setter.name, setter_name.unwrap()),
+        None => assert!(setter_name.is_none()),
+      }
     }
   }
 

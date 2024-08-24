@@ -2,6 +2,44 @@ use std::io::Write;
 
 fn main() {
   for (i, code) in [
+    // errors
+    r"
+fn error0( -> i32 {}
+",
+    r"
+fn error1() 1+1
+",
+    r"
+fn main() {}
+(1)
+(2)
+(3)
+(4)
+(5)
+ret 0
+",
+    "fn main(){}let x:i32 = 0",
+    r"
+fn no_return_type_but_has_return() { ret 0 }
+fn no_return_statement() 
+  -> i32 {
+}
+fn voidfunc(){}
+voidfunc() # ok
+# fn f() {}  fn f() -> i32 {}
+let x: WrongType = 0
+call_f()
+ret variable
+voidfunc() + 1 # ??
+(2)
+voidfunc(1, 2, 3)
+",
+    r"
+fn f(){}
+  f()
+  +
+  1
+9",
     // basic
     r"
 fn main() -> i32 {
@@ -19,7 +57,9 @@ fn f1() -> i32 {
 fn f2() -> i32 {
   ret 2
 }
-ret f1() + f2() * 3
+fn main() -> i32 {
+  ret f1() + f2() * 3
+}
 ",
     // nest
     r"
@@ -50,6 +90,7 @@ fn variables() -> i32 {
   let c: i64 = 600
   let d: i64 = 10000
   let a: i64 = 500 # shadowing
+  ret a+b+c+d
 }
 ",
     // some expressions
@@ -89,44 +130,17 @@ fn main() -> i32 {
   ret variables()
 }
     ",
-    // errors
+    // setter
     r"
-fn error0( -> i32 {}
-",
-    r"
-fn error1() 1+1
-",
-    r"
-fn main() {}
-(1)
-(2)
-(3)
-(4)
-(5)
-ret 0
-",
-    "fn main(){}let x:i32 = 0",
-    r"
-fn no_return_type_but_has_return() { ret 0 }
-fn no_return_statement() 
-  -> i32 {
+fn main() -> i32 {
+  let x: i32 | double = 10 # x is 10; initialize and assignment is different
+  # x.set(x) # todo, x will become 20
+  ret x # 
 }
-fn voidfunc(){}
-voidfunc() # ok
-# fn f() {}  fn f() -> i32 {}
-let x: WrongType = 0
-call_f()
-ret variable
-voidfunc() + 1 # ??
-(2)
-voidfunc(1, 2, 3)
+fn double(in: i32) -> i64 {
+  ret in*2
+}
 ",
-    r"
-fn f(){}
-  f()
-  +
-  1
-9",
   ]
   .iter()
   .enumerate()

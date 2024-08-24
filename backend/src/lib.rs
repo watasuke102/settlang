@@ -123,6 +123,14 @@ pub fn compile(code: &mut SourceCode) -> Result<Program, String> {
           to,
           code.ranged_string(begin, end)
         ),
+        MismatchSetterReturnType(setter_name, vartype, setter_retval_type, pos) => format!(
+          "[error] {} -> variable type is {:?} but setter function '{}' returns {:?}\n{}",
+          pos,
+          vartype,
+          setter_name,
+          setter_retval_type,
+          code.pointed_string(pos)
+        ),
         MismatchReturnExprType(expect, actual, begin, end) => format!(
         "[error] {} -> mismatched type; function return type is {:?} but return value is {:?}\n{}",
         begin,

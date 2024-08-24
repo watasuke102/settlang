@@ -1,5 +1,5 @@
 use std::{
-  cell::RefCell,
+  cell::{Ref, RefCell},
   collections::{HashMap, VecDeque},
   ops::Deref,
   rc::Rc,
@@ -58,6 +58,7 @@ impl TryFrom<tokenizer::Type> for Type {
 struct Argument {
   name:    String,
   vartype: Type,
+  setter:  Option<tokenizer::Setter>,
 }
 #[derive(Default)]
 struct UncompiledFunction {
@@ -94,6 +95,7 @@ impl UncompiledFunction {
         Ok(vartype) => Some(Argument {
           name: arg.name.clone(),
           vartype,
+          setter: arg.setter.clone(),
         }),
         Err(e) => {
           errors.push(e);
@@ -142,6 +144,7 @@ pub struct Function {
 pub struct Variable {
   pub idx:           usize,
   pub vartype:       Type,
+  pub setter:        Option<usize>,
   pub initial_value: Expression,
 }
 
@@ -469,12 +472,16 @@ impl Function {
     };
     let mut var_in_scope: HashMap<String, Variable> = HashMap::new();
     for (i, arg) in uncompiled.args.iter().enumerate() {
-      func.add_variable(
+      if let Some(err) = func.add_variable(
         arg.name.clone(),
         arg.vartype.clone(),
+        &arg.setter,
         Expression::arg(i, arg.vartype.clone()),
+        &uncompiled,
         &mut var_in_scope,
-      );
+      ) {
+        errors.push(err);
+      }
     }
 
     // return function that returns accessible (in-scope) function by name
@@ -509,7 +516,16 @@ impl Function {
               vartype.clone(),
             ));
           }
-          func.add_variable(var.name.clone(), vartype, initial_value, &mut var_in_scope);
+          if let Some(err) = func.add_variable(
+            var.name.clone(),
+            vartype,
+            &var.setter,
+            initial_value,
+            &uncompiled,
+            &mut var_in_scope,
+          ) {
+            errors.push(err);
+          }
         }
         ExprStatement(expr) => {
           match Expression::from_token(expr, &var_in_scope, &get_accessible_fn_by_name) {
@@ -569,16 +585,46 @@ impl Function {
     &mut self,
     name: String,
     vartype: Type,
+    setter: &Option<tokenizer::Setter>,
     initial_value: Expression,
+    uncompiled: &Ref<UncompiledFunction>,
     var_in_scope: &mut HashMap<String, Variable>,
-  ) {
-    let var = Variable {
+  ) -> Option<CompileError> {
+    let mut var = Variable {
       idx: self.variables.len(),
-      vartype,
+      vartype: vartype.clone(),
+      setter: None,
       initial_value,
     };
+    let retval =
+      setter.as_ref().and_then(
+        |setter| match uncompiled.get_accessible_fn_by_name(&setter.name) {
+          Some(setter_func) => {
+            let setter_func = setter_func.borrow();
+            // return type of Setter must be matched with variable type
+            if setter_func.return_type == vartype {
+              var.setter = Some(setter_func.idx);
+              None
+            } else {
+              Some(CompileError::MismatchSetterReturnType(
+                setter.name.clone(),
+                vartype.clone(),
+                setter_func.return_type.clone(),
+                setter.pos,
+              ))
+            }
+          }
+          None => Some(CompileError::UndefinedFunction(
+            setter.name.clone(),
+            setter.pos,
+          )),
+        },
+      );
+
     var_in_scope.insert(name, var.clone());
     self.variables.push(var);
+
+    retval
   }
 }
 
@@ -611,6 +657,7 @@ mod test {
       Variable {
         idx:           0,
         vartype:       Type::I32,
+        setter:        None,
         initial_value: Expression {
           expr_stack:  vec![ExprCommand::PushImm(var_value)],
           result_type: Type::I32,

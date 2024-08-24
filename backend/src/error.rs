@@ -13,6 +13,7 @@ pub enum TokenizeError {
   ExpectedExpression,
   Expected(&'static str),
   ExpectedType,
+  ExpectedFunction,
   InvalidNumber,
   UnclosedDelimiter,
 }
@@ -40,5 +41,7 @@ pub enum CompileError {
     source_code::Position,
     source_code::Position,
   ),
+  // setter name, vartype, setter retval type
+  MismatchSetterReturnType(String, compile::Type, compile::Type, source_code::Position),
   GlobalStatementWithMain(Vec<usize>),
 }

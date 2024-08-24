@@ -353,33 +353,35 @@ mod test {
   use super::*;
   #[test]
   fn test_expect_var_declare() {
-    for (code, is_expected_success, varname, vartype) in [
-      ("let name: i32 = 0", true, "name", "i32"),
-      ("let nospace:i32=0", true, "nospace", "i32"),
-      ("let no_type = 0", false, "", ""),
-      ("let uninitialized:i32", false, "", ""),
+    for (code, expect) in [
+      ("let name: i32 = 0", Some(("name", "i32", 0))),
+      ("let nospace:i32=10", Some(("nospace", "i32", 10))),
+      ("let no_type = 0", None),
+      ("let uninitialized:i32", None),
     ] {
-      let var = match expect_var_declaration(&mut SourceCode::new(code)) {
-        Ok(res) => {
-          if is_expected_success {
-            res
-          } else {
-            panic!("code `{}` is expected to fail but it succeeded", code);
+      let (var, (varname, vartype, initial)) =
+        match expect_var_declaration(&mut SourceCode::new(code)) {
+          Ok(res) => {
+            if let Some(expect) = expect {
+              (res, expect)
+            } else {
+              panic!("code `{}` is expected to fail but it succeeded", code);
+            }
           }
-        }
-        Err(err) => {
-          if is_expected_success {
-            panic!(
-              "code `{}` is expected to succeed but it fails ({:?})",
-              code, err
-            );
-          } else {
-            continue;
+          Err(err) => {
+            if expect.is_some() {
+              panic!(
+                "code `{}` is expected to succeed but it fails ({:?})",
+                code, err
+              );
+            } else {
+              continue;
+            }
           }
-        }
-      };
+        };
       assert_eq!(var.name, varname);
       assert_eq!(var.vartype.type_ident, vartype);
+      assert_eq!(var.initial_value.element._eval().unwrap(), initial);
     }
   }
 

@@ -113,47 +113,50 @@ fn code_section_contents(functions: &Vec<compile::Function>) -> Result<Vec<u8>, 
 fn assemble_expr(commands: &Vec<compile::ExprCommand>) -> Result<Vec<u8>, String> {
   let mut res = Vec::new();
   let mut current_type = Numtype::I32;
+  macro_rules! map {
+    ($i32_inst:expr, $i64_inst:expr) => {
+      match current_type {
+          Numtype::I32 => $i32_inst,
+          Numtype::I64 => $i64_inst,
+        } as u8
+      }
+    }
   for command in commands {
     use compile::ExprCommand::*;
+    use Inst::*;
     match command {
-      Add => res.push(match current_type {
-        Numtype::I32 => Inst::AddI32,
-        Numtype::I64 => Inst::AddI64,
-      } as u8),
-      Sub => res.push(match current_type {
-        Numtype::I32 => Inst::SubI32,
-        Numtype::I64 => Inst::SubI64,
-      } as u8),
-      Mul => res.push(match current_type {
-        Numtype::I32 => Inst::MulI32,
-        Numtype::I64 => Inst::MulI64,
-      } as u8),
-      Div => res.push(match current_type {
-        Numtype::I32 => Inst::DivSignedI32,
-        Numtype::I64 => Inst::DivSignedI64,
-      } as u8),
-      Mod => res.push(match current_type {
-        Numtype::I32 => Inst::RemSignedI32,
-        Numtype::I64 => Inst::RemSignedI64,
-      } as u8),
+      Add => res.push(map!(AddI32, AddI64)),
+      Sub => res.push(map!(SubI32, SubI64)),
+      Mul => res.push(map!(MulI32, MulI64)),
+      Div => res.push(map!(DivSignedI32, DivSignedI64)),
+      Mod => res.push(map!(RemSignedI32, RemSignedI64)),
+      Less => res.push(map!(LessSignedI32, LessSignedI64)),
+      LessEq => res.push(map!(LessEqSignedI32, LessEqSignedI64)),
+      Greater => res.push(map!(GreaterSignedI32, GreaterSignedI64)),
+      GreaterEq => res.push(map!(GreaterEqSignedI32, GreaterEqSignedI64)),
+      Eq => res.push(map!(EqI32, EqI64)),
+      NonEq => res.push(map!(NonEqI32, NonEqI64)),
+      BitOr => res.push(map!(OrI32, OrI64)),
+      BitAnd => res.push(map!(AndI32, AndI64)),
+      LogicOr | LogicAnd => unreachable!(),
       PushImm(imm) => {
-        res.push(Inst::ConstI32 as u8);
+        res.push(ConstI32 as u8);
         res.append(&mut to_signed_leb128(*imm as i64))
       }
       PushVar(idx) | GetInitialValueFromArg(idx) => {
-        res.push(Inst::LocalGet as u8);
+        res.push(LocalGet as u8);
         res.append(&mut to_signed_leb128(*idx as i64));
       }
       FnCall(idx) => {
-        res.push(Inst::Call as u8);
+        res.push(Call as u8);
         res.append(&mut to_signed_leb128(*idx as i64));
       }
       Cast(compile::Type::I32, compile::Type::I64) => {
-        res.push(Inst::ExtendSignedI32ToI64 as u8);
+        res.push(ExtendSignedI32ToI64 as u8);
         current_type = Numtype::I64;
       }
       Cast(compile::Type::I64, compile::Type::I32) => {
-        res.push(Inst::WrapI64ToI32 as u8);
+        res.push(WrapI64ToI32 as u8);
         current_type = Numtype::I32;
       }
       Cast(_, _) => return Err(format!("Unknown command : {:?}", command)),
@@ -188,16 +191,35 @@ enum Inst {
   LocalGet             = 0x20,
   LocalSet             = 0x21,
   ConstI32             = 0x41,
+
+  EqI32                = 0x46,
+  NonEqI32             = 0x47,
+  LessSignedI32        = 0x48,
+  GreaterSignedI32     = 0x4a,
+  LessEqSignedI32      = 0x4c,
+  GreaterEqSignedI32   = 0x4e,
+  EqI64                = 0x51,
+  NonEqI64             = 0x52,
+  LessSignedI64        = 0x53,
+  GreaterSignedI64     = 0x55,
+  LessEqSignedI64      = 0x57,
+  GreaterEqSignedI64   = 0x59,
+
   AddI32               = 0x6a,
   SubI32               = 0x6b,
   MulI32               = 0x6c,
   DivSignedI32         = 0x6d,
   RemSignedI32         = 0x6f,
+  AndI32               = 0x71,
+  OrI32                = 0x72,
   AddI64               = 0x7c,
   SubI64               = 0x7d,
   MulI64               = 0x7e,
   DivSignedI64         = 0x7f,
-  WrapI64ToI32         = 0xa7,
   RemSignedI64         = 0x81,
+  AndI64               = 0x83,
+  OrI64                = 0x84,
+
+  WrapI64ToI32         = 0xa7,
   ExtendSignedI32ToI64 = 0xac,
 }

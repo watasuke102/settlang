@@ -181,6 +181,16 @@ pub enum ExprCommand {
   Mul,
   Div,
   Mod,
+  Less,
+  LessEq,
+  Greater,
+  GreaterEq,
+  Eq,
+  NonEq,
+  LogicOr,
+  LogicAnd,
+  BitOr,
+  BitAnd,
   Cast(Type, Type), // from, to
   PushImm(i32),
   PushVar(usize),
@@ -245,34 +255,66 @@ impl Expression {
             return;
           }
         }
-        // lhs: push expr and cast if type does not match
-        expr_stack.append(&mut lhs.expr_stack);
+        // cast if type does not match
         if lhs.result_type != result_type {
-          expr_stack.push(ExprCommand::Cast(
+          lhs.expr_stack.push(ExprCommand::Cast(
             lhs.result_type.clone(),
             result_type.clone(),
           ));
         }
-        // rhs: push expr and cast if type does not match
-        expr_stack.append(&mut rhs.expr_stack);
         if rhs.result_type != result_type {
-          expr_stack.push(ExprCommand::Cast(
+          rhs.expr_stack.push(ExprCommand::Cast(
             rhs.result_type.clone(),
             result_type.clone(),
           ));
         }
-        expr_stack.push(push_if_succeed);
+        // append lhs and rhs to expr stack
+        {
+          use ExprCommand::*;
+          match push_if_succeed {
+            // logic and/or is special; no equivalent instructions in WASM
+            LogicAnd | LogicOr => {
+              expr_stack.append(&mut lhs.expr_stack);
+              // cast lhs to bool (lhs != 0)
+              expr_stack.push(ExprCommand::PushImm(0));
+              expr_stack.push(ExprCommand::NonEq);
+              // cast rhs to bool (lhs != 0)
+              expr_stack.append(&mut rhs.expr_stack);
+              expr_stack.push(ExprCommand::PushImm(0));
+              expr_stack.push(ExprCommand::NonEq);
+              // bool(rhs) 'and/or' bool(lhs)
+              expr_stack.push(match push_if_succeed {
+                LogicAnd => BitAnd,
+                LogicOr => BitOr,
+                _ => unreachable!(),
+              });
+            }
+            // otherwise push normally
+            _ => {
+              expr_stack.append(&mut lhs.expr_stack);
+              expr_stack.append(&mut rhs.expr_stack);
+              expr_stack.push(push_if_succeed);
+            }
+          }
+        }
       };
 
     use tokenizer::ExprElement::*;
-    #[allow(unreachable_patterns)]
     match &token.element {
-      _ => todo!(),
       Add(lhs, rhs) => extract(lhs.deref(), rhs.deref(), ExprCommand::Add),
       Sub(lhs, rhs) => extract(lhs.deref(), rhs.deref(), ExprCommand::Sub),
       Mul(lhs, rhs) => extract(lhs.deref(), rhs.deref(), ExprCommand::Mul),
       Div(lhs, rhs) => extract(lhs.deref(), rhs.deref(), ExprCommand::Div),
       Mod(lhs, rhs) => extract(lhs.deref(), rhs.deref(), ExprCommand::Mod),
+      Less(lhs, rhs) => extract(lhs.deref(), rhs.deref(), ExprCommand::Less),
+      LessEq(lhs, rhs) => extract(lhs.deref(), rhs.deref(), ExprCommand::LessEq),
+      Greater(lhs, rhs) => extract(lhs.deref(), rhs.deref(), ExprCommand::Greater),
+      GreaterEq(lhs, rhs) => extract(lhs.deref(), rhs.deref(), ExprCommand::GreaterEq),
+      Eq(lhs, rhs) => extract(lhs.deref(), rhs.deref(), ExprCommand::Eq),
+      NonEq(lhs, rhs) => extract(lhs.deref(), rhs.deref(), ExprCommand::NonEq),
+      LogicAnd(lhs, rhs) => extract(lhs.deref(), rhs.deref(), ExprCommand::LogicAnd),
+      LogicOr(lhs, rhs) => extract(lhs.deref(), rhs.deref(), ExprCommand::LogicOr),
+
       Constant(v) => {
         result_type = Type::I32;
         expr_stack.push(ExprCommand::PushImm(*v));

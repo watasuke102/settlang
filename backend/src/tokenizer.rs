@@ -367,6 +367,12 @@ fn expect_expression(code: &mut SourceCode) -> TokenizeResult<Expression> {
       return Ok(expr.element);
     }
 
+    if seq(vec![str("true"), mul(space())])(code).is_ok() {
+      return Ok(ExprElement::Constant(1));
+    }
+    if seq(vec![str("false"), mul(space())])(code).is_ok() {
+      return Ok(ExprElement::Constant(0));
+    }
     match expect_constant(code) {
       Ok(res) => return Ok(ExprElement::Constant(res)),
       Err(TokenizeError::NoMatch) => (),
@@ -625,6 +631,7 @@ mod test {
       ("1+2 * 3", 7),    // mul should be prioritized
       ("2 * (4+6)", 20), // bracket should be prioritized
       ("2+-10%4", 0),    // signed mod (same behavior with Rust)
+      ("true + 1", 2),   // boolean    (same behavior with C++)
       (
         "6
         -2",

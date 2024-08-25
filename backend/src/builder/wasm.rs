@@ -77,31 +77,7 @@ fn code_section_contents(functions: &Vec<compile::Function>) -> Result<Vec<u8>, 
       expr.push(Inst::LocalSet as u8);
       expr.append(&mut to_signed_leb128(var.idx as i64));
     }
-    for statement in &function.code {
-      use compile::Statement::*;
-      match statement {
-        ExprStatement(e) => {
-          expr.append(&mut assemble_expr(&e.expr_stack)?);
-          if e.result_type != compile::Type::Void {
-            expr.push(Inst::Drop as u8);
-          }
-        }
-        Return(e) => {
-          expr.append(&mut assemble_expr(&e.expr_stack)?);
-          expr.push(Inst::Return as u8);
-        }
-        SetterCall(mutate_info) => {
-          // push arguments
-          expr.append(&mut assemble_expr(&mutate_info.arg_stack)?);
-          // call function as setter; top of the stack will become a new value of variable
-          expr.push(Inst::Call as u8);
-          expr.append(&mut to_signed_leb128(mutate_info.setter as i64));
-          // mutate local (variable)
-          expr.push(Inst::LocalSet as u8);
-          expr.append(&mut to_signed_leb128(mutate_info.var as i64));
-        }
-      }
-    }
+    expr.append(&mut assemble_statements(&function.code)?);
 
     expr.push(Inst::End as u8);
     contents.append(&mut to_signed_leb128((locals.len() + expr.len()) as i64)); // func body size
@@ -109,6 +85,35 @@ fn code_section_contents(functions: &Vec<compile::Function>) -> Result<Vec<u8>, 
     contents.append(&mut expr);
   }
   Ok(contents)
+}
+fn assemble_statements(statements: &Vec<compile::Statement>) -> Result<Vec<u8>, String> {
+  let mut expr = Vec::new();
+  for statement in statements.iter() {
+    use compile::Statement::*;
+    match statement {
+      ExprStatement(e) => {
+        expr.append(&mut assemble_expr(&e.expr_stack)?);
+        if e.result_type != compile::Type::Void {
+          expr.push(Inst::Drop as u8);
+        }
+      }
+      Return(e) => {
+        expr.append(&mut assemble_expr(&e.expr_stack)?);
+        expr.push(Inst::Return as u8);
+      }
+      SetterCall(mutate_info) => {
+        // push arguments
+        expr.append(&mut assemble_expr(&mutate_info.arg_stack)?);
+        // call function as setter; top of the stack will become a new value of variable
+        expr.push(Inst::Call as u8);
+        expr.append(&mut to_signed_leb128(mutate_info.setter as i64));
+        // mutate local (variable)
+        expr.push(Inst::LocalSet as u8);
+        expr.append(&mut to_signed_leb128(mutate_info.var as i64));
+      }
+    }
+  }
+  Ok(expr)
 }
 fn assemble_expr(commands: &Vec<compile::ExprCommand>) -> Result<Vec<u8>, String> {
   let mut res = Vec::new();

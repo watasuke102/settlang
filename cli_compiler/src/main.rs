@@ -146,6 +146,18 @@ fn set_one() -> i32 {
   ret 1
 }
 ",
+    r"
+# return n!
+fn factorial(n: i32) -> i32 {
+  if n == 0 { ret 1 }
+  31
+  ret n * factorial(n-1)
+}
+# function named `main` is entrypoint
+fn main() -> i32 {
+  ret factorial(4)
+}
+",
   ]
   .iter()
   .enumerate()

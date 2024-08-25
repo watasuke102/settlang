@@ -292,6 +292,7 @@ pub enum ExprElement {
   Constant(i32),
   Variable(String, source_code::Position),
   FnCall(String, Vec<Expression>, source_code::Position),
+  IfExpr(Box<If>),
 
   Mul(Box<ExprElement>, Box<ExprElement>),
   Div(Box<ExprElement>, Box<ExprElement>),
@@ -330,7 +331,6 @@ impl ExprElement {
     }
   }
 }
-
 // FIXME (?) : [(char('+'), ExprElement::Add), (char('-'), ExprElement::Sub)] is INVALID
 fn expect_expression(code: &mut SourceCode) -> TokenizeResult<Expression> {
   let begin = code.lines_and_cols();
@@ -466,6 +466,12 @@ fn expect_expression(code: &mut SourceCode) -> TokenizeResult<Expression> {
       return Ok(expr.element);
     }
 
+    match expect_if(code) {
+      Ok(res) => return Ok(ExprElement::IfExpr(Box::new(res))),
+      Err(TokenizeError::NoMatch) => (),
+      Err(e) => return Err(e),
+    }
+
     if seq(vec![str("true"), mul(space())])(code).is_ok() {
       return Ok(ExprElement::Constant(1));
     }
@@ -515,6 +521,66 @@ fn expect_expression(code: &mut SourceCode) -> TokenizeResult<Expression> {
       Ok(constant * sign)
     }
   }
+}
+#[derive(Debug, Clone)]
+pub struct If {
+  pub cond:      Expression,
+  pub then:      Vec<Statement>,
+  pub otherwise: Option<Vec<Statement>>,
+}
+// FIXME?
+impl PartialEq for If {
+  fn eq(&self, _: &Self) -> bool {
+    false
+  }
+  fn ne(&self, _: &Self) -> bool {
+    true
+  }
+}
+fn expect_if(code: &mut SourceCode) -> TokenizeResult<If> {
+  seq(vec![str("if"), mul(space())])(code.skip_space()).or(Err(TokenizeError::NoMatch))?;
+  let cond = expect_expression(code)?;
+
+  char('{')(code.skip_space()).or(Err(TokenizeError::Expected("{ <code>? }")))?;
+  let then = expect_code(code.skip_space())?;
+  char('}')(code.skip_space()).or(Err(TokenizeError::UnclosedDelimiter))?;
+
+  let otherwise = if str("else")(code.skip_space()).is_ok() {
+    code.skip_space();
+    let begin = code.lines_and_cols();
+    // `if {} else **{}**`
+    if char('{')(code).is_ok() {
+      let otherwise = expect_code(code.skip_space())?;
+      char('}')(code.skip_space()).or(Err(TokenizeError::UnclosedDelimiter))?;
+      Some(otherwise)
+    } else {
+      // (maybe) `if {} else **if ...**`
+      match expect_if(code) {
+        Ok(res) => {
+          let expr = Expression {
+            element: ExprElement::IfExpr(Box::new(res)),
+            begin,
+            end: code.lines_and_cols(),
+          };
+          Some(vec![Statement {
+            kind: StatementKind::ExprStatement(expr),
+            begin,
+            end: code.lines_and_cols(),
+          }])
+        }
+        Err(TokenizeError::NoMatch) => None,
+        Err(e) => return Err(e),
+      }
+    }
+  } else {
+    None
+  };
+
+  Ok(If {
+    cond,
+    then,
+    otherwise,
+  })
 }
 
 /// consume Identifier and return (it, consumed code)
@@ -813,6 +879,80 @@ mod test {
         );
       }
     }
+  }
+  #[test]
+  fn expect_expression_succeed_to_parse_if() {
+    let code = "if 0{1}";
+    let if_expr = expect_if(&mut SourceCode::new(code))
+      .unwrap_or_else(|e| panic!("failed to parse `{}` : {:?}", code, e));
+    assert_eq!(if_expr.cond.element._eval().unwrap(), 0);
+    let StatementKind::ExprStatement(ref parsed_then) = if_expr.then[0].kind else {
+      panic!(
+        "first statement of `then` block is not expression (actual: {:?}, code: {})",
+        if_expr.then[0].kind, code
+      );
+    };
+    assert_eq!(parsed_then.element._eval().unwrap(), 1);
+    assert!(if_expr.otherwise.is_none());
+  }
+  #[test]
+  fn expect_expression_succeed_to_parse_if_else() {
+    let code = "if 0 {1} else {2}";
+    let if_expr = expect_if(&mut SourceCode::new(code))
+      .unwrap_or_else(|e| panic!("failed to parse `{}` : {:?}", code, e));
+    assert_eq!(if_expr.cond.element._eval().unwrap(), 0);
+    let StatementKind::ExprStatement(ref parsed_then) = if_expr.then[0].kind else {
+      panic!(
+        "first statement of `then` block is not expression (actual: {:?}, code: {})",
+        if_expr.then[0].kind, code
+      );
+    };
+    assert_eq!(parsed_then.element._eval().unwrap(), 1);
+    let parsed_otherwise = if_expr.otherwise.unwrap();
+    let StatementKind::ExprStatement(ref parsed_otherwise) = parsed_otherwise[0].kind else {
+      panic!(
+        "first statement of `else` block is not expression (actual: {:?}, code: {})",
+        parsed_otherwise[0].kind, code
+      );
+    };
+    assert_eq!(parsed_otherwise.element._eval().unwrap(), 2);
+  }
+  #[test]
+  fn expect_expression_succeed_to_parse_if_elif() {
+    let code = "if 0 {1} else if 2 {3}";
+    let if_expr = expect_if(&mut SourceCode::new(code))
+      .unwrap_or_else(|e| panic!("failed to parse `{}` : {:?}", code, e));
+    assert_eq!(if_expr.cond.element._eval().unwrap(), 0);
+    let StatementKind::ExprStatement(ref parsed_then) = if_expr.then[0].kind else {
+      panic!(
+        "first statement of `then` block is not expression (actual: {:?}, code: {})",
+        if_expr.then[0].kind, code
+      );
+    };
+    assert_eq!(parsed_then.element._eval().unwrap(), 1);
+    let parsed_otherwise = if_expr.otherwise.unwrap();
+    let StatementKind::ExprStatement(ref parsed_otherwise) = parsed_otherwise[0].kind else {
+      panic!(
+        "first statement of `else` block is not expression (actual: {:?}, code: {})",
+        parsed_otherwise[0].kind, code
+      );
+    };
+
+    // else if
+    let ExprElement::IfExpr(ref elif) = parsed_otherwise.element else {
+      panic!(
+        "first statement of `else` block is not 'if' expression (actual: {:?}, code: {})",
+        parsed_otherwise, code
+      );
+    };
+    assert_eq!(elif.cond.element._eval().unwrap(), 2);
+    let StatementKind::ExprStatement(ref parsed_then) = elif.then[0].kind else {
+      panic!(
+        "first statement of `then` block is not expression (actual: {:?}, code: {})",
+        elif.then[0].kind, code
+      );
+    };
+    assert_eq!(parsed_then.element._eval().unwrap(), 3);
   }
   #[test]
   fn expect_identifier_returns_str_before_whitespace() {

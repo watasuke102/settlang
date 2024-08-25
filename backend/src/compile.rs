@@ -34,8 +34,8 @@ impl Type {
     if a == &Self::Void || b == &Self::Void {
       return None;
     }
-    if (a == &Self::I32 && b == &Self::I64) // _
-     || (a == &Self::I64 && b == &Self::I32)
+    if (a == &Self::I32 && b == &Self::I64) || // _
+       (a == &Self::I64 && b == &Self::I32)
     {
       return Some(Self::I64);
     }
@@ -161,13 +161,13 @@ impl fmt::Debug for Variable {
   }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Statement {
-  ExprStatement(Expression),
+  ExprStatement(Expression, /** should_drop: */ bool),
   Return(Expression),
   SetterCall(MutationInfo),
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MutationInfo {
   pub setter:    usize,
   pub var:       usize,
@@ -176,23 +176,25 @@ pub struct MutationInfo {
 impl Statement {
   fn new_return(
     expr: &Option<tokenizer::Expression>,
-    fn_return_type: &Type,
+    parent_func: &Ref<UncompiledFunction>,
     statement_begin: source_code::Position,
     statement_end: source_code::Position,
     var_in_scope: &HashMap<String, Variable>,
     get_accessible_fn_by_name: &AccessibleFnGetter,
   ) -> CompileResult<Self> {
     let mut retval = match expr {
-      Some(expr) => Expression::from_token(expr, &var_in_scope, &get_accessible_fn_by_name)?,
+      Some(expr) => {
+        Expression::from_token(expr, parent_func, &var_in_scope, &get_accessible_fn_by_name)?
+      }
       None => Expression {
         expr_stack:  Vec::new(),
         result_type: Type::Void,
       },
     };
-    if *fn_return_type != retval.result_type {
-      if *fn_return_type == Type::Void || retval.result_type == Type::Void {
+    if parent_func.return_type != retval.result_type {
+      if parent_func.return_type == Type::Void || retval.result_type == Type::Void {
         return Err(vec![CompileError::MismatchReturnExprType(
-          fn_return_type.clone(),
+          parent_func.return_type.clone(),
           retval.result_type,
           statement_begin,
           statement_end,
@@ -200,7 +202,7 @@ impl Statement {
       }
       retval.expr_stack.push(ExprCommand::Cast(
         retval.result_type.clone(),
-        fn_return_type.clone(),
+        parent_func.return_type.clone(),
       ));
     }
     Ok(Statement::Return(retval))
@@ -258,11 +260,28 @@ pub enum ExprCommand {
   LogicAnd,
   BitOr,
   BitAnd,
+  IfExpr(If),
   Cast(Type, Type), // from, to
   PushImm(i32),
   PushVar(usize),
   FnCall(usize),
   GetInitialValueFromArg(usize), // index of arguments
+}
+#[derive(Debug, Clone)]
+pub struct If {
+  pub cond:        Expression,
+  pub then:        Vec<Statement>,
+  pub otherwise:   Option<Vec<Statement>>,
+  pub result_type: Type,
+}
+// FIXME?
+impl PartialEq for If {
+  fn eq(&self, _: &Self) -> bool {
+    false
+  }
+  fn ne(&self, _: &Self) -> bool {
+    true
+  }
 }
 // express Expressions by stack machine
 #[derive(Debug, Clone)]
@@ -279,6 +298,7 @@ impl Expression {
   }
   fn from_token(
     token: &tokenizer::Expression,
+    parent_func: &Ref<UncompiledFunction>,
     var_in_scope: &HashMap<String, Variable>,
     get_accessible_fn_by_name: &AccessibleFnGetter,
   ) -> CompileResult<Self> {
@@ -291,6 +311,7 @@ impl Expression {
       |lhs: &tokenizer::ExprElement, rhs: &tokenizer::ExprElement, push_if_succeed: ExprCommand| {
         let lhs = Expression::from_token(
           &token.replaced(lhs.clone()),
+          parent_func,
           var_in_scope,
           get_accessible_fn_by_name,
         )
@@ -300,6 +321,7 @@ impl Expression {
         });
         let rhs = Expression::from_token(
           &token.replaced(rhs.clone()),
+          parent_func,
           var_in_scope,
           get_accessible_fn_by_name,
         )
@@ -422,6 +444,101 @@ impl Expression {
           Err(mut e) => errors.append(&mut e),
         }
       }
+      IfExpr(if_expr) => 'if_expr: {
+        let map_statement_in_if = |statement: &tokenizer::Statement| {
+          use tokenizer::StatementKind::*;
+          match &statement.kind {
+            ExprStatement(expr) => {
+              Expression::from_token(expr, parent_func, &var_in_scope, &get_accessible_fn_by_name)
+                .and_then(|expr| Ok(Statement::ExprStatement(expr, true)))
+            }
+            Return(expr) => Statement::new_return(
+              expr,
+              parent_func,
+              statement.begin,
+              statement.end,
+              &var_in_scope,
+              &get_accessible_fn_by_name,
+            ),
+            SetterCall(setter_call) => Statement::new_setter_call(
+              setter_call,
+              statement.begin,
+              &var_in_scope,
+              &get_accessible_fn_by_name,
+            ),
+            _ => Err(vec![CompileError::NotAllowedStatementInIf(statement.begin)]),
+          }
+        };
+
+        let cond = match Expression::from_token(
+          &if_expr.cond,
+          parent_func,
+          var_in_scope,
+          get_accessible_fn_by_name,
+        ) {
+          Ok(res) => res,
+          Err(mut e) => {
+            errors.append(&mut e);
+            break 'if_expr;
+          }
+        };
+        let (then, err): (Vec<_>, Vec<_>) = if_expr
+          .then
+          .iter()
+          .map(map_statement_in_if)
+          .partition(Result::is_ok);
+        err
+          .into_iter()
+          .for_each(|e| errors.append(&mut e.unwrap_err()));
+        let mut then: Vec<Statement> = then.into_iter().map(Result::unwrap).collect();
+        // if last statement of block is Expression, it is return value
+        let mut then_result_type = Type::Void;
+        if let Some(last) = then.last_mut() {
+          if let Statement::ExprStatement(expr, _) = last {
+            then_result_type = expr.result_type.clone();
+            // the result of this expression must be keepen on the stack
+            *last = Statement::ExprStatement(expr.clone(), false);
+          }
+        }
+        // if 'if' has 'else', check its return value
+        let mut otherwise_result_type = Type::Void;
+        let otherwise = if_expr.otherwise.as_ref().and_then(|otherwise| {
+          let (otherwise, err): (Vec<_>, Vec<_>) = otherwise
+            .iter()
+            .map(map_statement_in_if)
+            .partition(Result::is_ok);
+          err
+            .into_iter()
+            .for_each(|e| errors.append(&mut e.unwrap_err()));
+          let mut otherwise: Vec<Statement> = otherwise.into_iter().map(Result::unwrap).collect();
+          // if last statement of block is Expression, it is return value
+          if let Some(last) = otherwise.last_mut() {
+            if let Statement::ExprStatement(expr, _) = last {
+              otherwise_result_type = expr.result_type.clone();
+              // the result of this expression must be keepen on the stack
+              *last = Statement::ExprStatement(expr.clone(), false);
+            }
+          }
+          Some(otherwise)
+        });
+        // 'then' result type and 'otherwise' result type must be same
+        if then_result_type == otherwise_result_type {
+          expr_stack.push(ExprCommand::IfExpr(If {
+            cond,
+            then,
+            otherwise,
+            result_type: then_result_type.clone(),
+          }));
+          result_type = then_result_type;
+        } else {
+          errors.push(CompileError::MismatchIfLastExpr(
+            then_result_type.clone(),
+            otherwise_result_type,
+            token.begin,
+            token.end,
+          ));
+        }
+      }
     }
 
     errors_or(
@@ -442,7 +559,7 @@ fn exprcomand_from_token_vec(
   let mut errors = Vec::new();
   let mut arguments_expr = Vec::new();
   for (i, arg_expr) in token_vec.iter().enumerate() {
-    match Expression::from_token(arg_expr, var_in_scope, get_accessible_fn_by_name) {
+    match Expression::from_token(arg_expr, callee, var_in_scope, get_accessible_fn_by_name) {
       Ok(mut expr) => {
         if expr.result_type != callee.args[i].vartype {
           expr.expr_stack.push(ExprCommand::Cast(
@@ -647,6 +764,7 @@ impl Function {
           };
           let mut initial_value = match Expression::from_token(
             &var.initial_value,
+            &uncompiled,
             &var_in_scope,
             &get_accessible_fn_by_name,
           ) {
@@ -674,14 +792,15 @@ impl Function {
           }
         }
         ExprStatement(expr) => {
-          match Expression::from_token(expr, &var_in_scope, &get_accessible_fn_by_name) {
-            Ok(expr) => func.code.push(Statement::ExprStatement(expr)),
-            Err(mut e) => errors.append(&mut e),
+          match Expression::from_token(expr, &uncompiled, &var_in_scope, &get_accessible_fn_by_name)
+          {
+            Ok(expr) => func.code.push(Statement::ExprStatement(expr, true)),
+            Err(mut res) => errors.append(&mut res),
           }
         }
         Return(expr) => match Statement::new_return(
           expr,
-          &func.return_type,
+          &uncompiled,
           statement.begin,
           statement.end,
           &var_in_scope,
@@ -798,15 +917,16 @@ mod test {
         },
       },
     )]);
+    let func = Rc::new(RefCell::new(UncompiledFunction {
+      idx: 0,
+      name: "f".to_string(),
+      return_type: Type::Void,
+      ..Default::default()
+    }));
+    let func_borrowed = func.borrow();
     let fn_getter: AccessibleFnGetter = Box::new(|name| {
       assert_eq!(name, "f");
-      let f = UncompiledFunction {
-        idx: 0,
-        name: "f".to_string(),
-        return_type: Type::Void,
-        ..Default::default()
-      };
-      Some(Rc::new(RefCell::new(f)))
+      Some(func.clone())
     });
     let eval_expr = |expr: &Expression| -> Option<i32> {
       let mut stack: Vec<i32> = Vec::new();
@@ -875,6 +995,7 @@ mod test {
             begin:   source_code::Position::default(),
             end:     source_code::Position::default(),
           },
+          &func_borrowed,
           &var_in_scope,
           &fn_getter,
         )
@@ -910,6 +1031,7 @@ mod test {
             begin:   source_code::Position::default(),
             end:     source_code::Position::default(),
           },
+          &func_borrowed,
           &var_in_scope,
           &fn_getter,
         )

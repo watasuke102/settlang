@@ -91,9 +91,9 @@ fn assemble_statements(statements: &Vec<compile::Statement>) -> Result<Vec<u8>, 
   for statement in statements.iter() {
     use compile::Statement::*;
     match statement {
-      ExprStatement(e) => {
+      ExprStatement(e, should_drop) => {
         expr.append(&mut assemble_expr(&e.expr_stack)?);
-        if e.result_type != compile::Type::Void {
+        if e.result_type != compile::Type::Void && *should_drop {
           expr.push(Inst::Drop as u8);
         }
       }
@@ -144,6 +144,21 @@ fn assemble_expr(commands: &Vec<compile::ExprCommand>) -> Result<Vec<u8>, String
       BitOr => res.push(map!(OrI32, OrI64)),
       BitAnd => res.push(map!(AndI32, AndI64)),
       LogicOr | LogicAnd => unreachable!(),
+      IfExpr(if_expr) => {
+        res.append(&mut assemble_expr(&if_expr.cond.expr_stack)?);
+        res.push(If as u8);
+        res.push(if if_expr.result_type == compile::Type::Void {
+          0x40
+        } else {
+          to_wasm_numtype(&if_expr.result_type)?
+        });
+        res.append(&mut assemble_statements(&if_expr.then)?);
+        if let Some(ref otherwise) = if_expr.otherwise {
+          res.push(Else as u8);
+          res.append(&mut assemble_statements(otherwise)?);
+        }
+        res.push(End as u8);
+      }
       PushImm(imm) => {
         res.push(ConstI32 as u8);
         res.append(&mut to_signed_leb128(*imm as i64))
@@ -184,11 +199,13 @@ fn to_wasm_numtype(compile_type: &compile::Type) -> Result<u8, String> {
   match compile_type {
     compile::Type::I32 => Ok(Numtype::I32 as u8),
     compile::Type::I64 => Ok(Numtype::I64 as u8),
-    _ => Err(format!("Invalid type : {:?}", compile_type)),
+    _ => Err(format!("Invalid type ({:?})", compile_type)),
   }
 }
 
 enum Inst {
+  If                   = 0x04,
+  Else                 = 0x05,
   End                  = 0x0b,
   Return               = 0x0f,
   Call                 = 0x10,

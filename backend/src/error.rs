@@ -60,7 +60,15 @@ pub enum CompileError {
     compile::Type,
     source_code::Position,
   ),
+  // 'then' type, 'otherwise' type, begin, end
+  MismatchIfLastExpr(
+    compile::Type,
+    compile::Type,
+    source_code::Position,
+    source_code::Position,
+  ),
   TryMutateImmutableVar(String, source_code::Position),
+  NotAllowedStatementInIf(source_code::Position),
   GlobalStatementWithMain(Vec<usize>),
 }
 impl CompileError {
@@ -126,10 +134,22 @@ impl CompileError {
         actual,
         code.ranged_string(begin, end)
       ),
+      MismatchIfLastExpr(then_type, otherwise_type, begin, end) => format!(
+        "[error] {} -> last expression type of 'if' is different; if {{ {:?} }} else {{ {:?} }}\n{}",
+        begin,
+        then_type,
+        otherwise_type, 
+        code.ranged_string(begin, end)
+      ),
         TryMutateImmutableVar(varname, pos) => format!(
           "[error] {} -> try to mutate the variable '{}' but it is immutable (does not have setter)\n{}",
           pos,
           varname,
+          code.pointed_string(pos)
+        ),
+        NotAllowedStatementInIf(pos)=> format!(
+          "[error] {} -> this statement is not allowed in if expression\n{}",
+          pos,
           code.pointed_string(pos)
         ),
         GlobalStatementWithMain(lines) => {

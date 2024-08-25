@@ -22,7 +22,7 @@ pub fn compile(code: &mut SourceCode) -> Result<Program, String> {
   let errors = program.unwrap_err();
   let mut error_message: Vec<String> = errors.iter().map(|err| err.to_string(code)).collect();
   error_message.push(format!(
-    "Failed to compile due to {} error(s)",
+    "\nFailed to compile due to {} error(s)",
     errors.len()
   ));
 

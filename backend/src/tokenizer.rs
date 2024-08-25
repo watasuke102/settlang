@@ -125,7 +125,6 @@ fn expect_setter_call(code: &mut SourceCode) -> TokenizeResult<SetterCall> {
     code.unwind(initial_pos);
     Err(err)
   })?;
-  println!("before: {}", code.remaining_code());
   seq(vec![
     optional(mul(space())),
     char('.'),
@@ -135,7 +134,6 @@ fn expect_setter_call(code: &mut SourceCode) -> TokenizeResult<SetterCall> {
     char('('),
   ])(code)
   .or_else(|_| {
-    println!("remain: {}", code.remaining_code());
     code.unwind(initial_pos);
     Err(TokenizeError::NoMatch)
   })?;
@@ -758,7 +756,6 @@ mod test {
       ("unclosed.set(", None),
       (".set()", None),
     ] {
-      println!("=========== code: `{}`", code);
       let (parsed_setter_call, (varname, args)) =
         match expect_setter_call(&mut SourceCode::new(code)) {
           Ok(res) => {

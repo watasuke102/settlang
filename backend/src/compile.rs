@@ -6,7 +6,7 @@ use std::{
   rc::Rc,
 };
 
-use crate::{error::CompileError, tokenizer};
+use crate::{error::CompileError, source_code, tokenizer};
 
 type CompileResult<T> = Result<T, Vec<CompileError>>;
 fn errors_or<T>(errors: Vec<CompileError>, res: T) -> CompileResult<T> {
@@ -172,6 +172,73 @@ pub struct MutationInfo {
   pub setter:    usize,
   pub var:       usize,
   pub arg_stack: Vec<ExprCommand>,
+}
+impl Statement {
+  fn new_return(
+    expr: &Option<tokenizer::Expression>,
+    fn_return_type: &Type,
+    statement_begin: source_code::Position,
+    statement_end: source_code::Position,
+    var_in_scope: &HashMap<String, Variable>,
+    get_accessible_fn_by_name: &AccessibleFnGetter,
+  ) -> CompileResult<Self> {
+    let mut retval = match expr {
+      Some(expr) => Expression::from_token(expr, &var_in_scope, &get_accessible_fn_by_name)?,
+      None => Expression {
+        expr_stack:  Vec::new(),
+        result_type: Type::Void,
+      },
+    };
+    if *fn_return_type != retval.result_type {
+      if *fn_return_type == Type::Void || retval.result_type == Type::Void {
+        return Err(vec![CompileError::MismatchReturnExprType(
+          fn_return_type.clone(),
+          retval.result_type,
+          statement_begin,
+          statement_end,
+        )]);
+      }
+      retval.expr_stack.push(ExprCommand::Cast(
+        retval.result_type.clone(),
+        fn_return_type.clone(),
+      ));
+    }
+    Ok(Statement::Return(retval))
+  }
+  fn new_setter_call(
+    setter_call: &tokenizer::SetterCall,
+    statement_begin: source_code::Position,
+    var_in_scope: &HashMap<String, Variable>,
+    get_accessible_fn_by_name: &AccessibleFnGetter,
+  ) -> CompileResult<Self> {
+    // get variable that will be mutated
+    let Some(var) = var_in_scope.get(&setter_call.varname) else {
+      return Err(vec![CompileError::UndefinedVariable(
+        setter_call.varname.clone(),
+        statement_begin,
+      )])?;
+    };
+    // get function that is treated as setter
+    let Some(ref setter) = var.setter else {
+      return Err(vec![CompileError::TryMutateImmutableVar(
+        setter_call.varname.clone(),
+        statement_begin,
+      )]);
+    };
+    let setter = setter.borrow();
+    // prepare arguments of setter
+    let arg_stack = exprcomand_from_token_vec(
+      &setter_call.args,
+      &setter,
+      &var_in_scope,
+      &get_accessible_fn_by_name,
+    )?;
+    Ok(Statement::SetterCall(MutationInfo {
+      setter: setter.idx,
+      var: var.idx,
+      arg_stack,
+    }))
+  }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -609,75 +676,29 @@ impl Function {
         ExprStatement(expr) => {
           match Expression::from_token(expr, &var_in_scope, &get_accessible_fn_by_name) {
             Ok(expr) => func.code.push(Statement::ExprStatement(expr)),
-            Err(mut res) => errors.append(&mut res),
-          }
-        }
-        Return(expr) => {
-          let mut retval = match expr {
-            Some(expr) => {
-              match Expression::from_token(expr, &var_in_scope, &get_accessible_fn_by_name) {
-                Ok(expr) => expr,
-                Err(mut res) => {
-                  errors.append(&mut res);
-                  continue;
-                }
-              }
-            }
-            None => Expression {
-              expr_stack:  Vec::new(),
-              result_type: Type::Void,
-            },
-          };
-          if func.return_type != retval.result_type {
-            if func.return_type == Type::Void || retval.result_type == Type::Void {
-              errors.push(CompileError::MismatchReturnExprType(
-                func.return_type.clone(),
-                retval.result_type,
-                statement.begin,
-                statement.end,
-              ));
-              continue;
-            }
-            retval.expr_stack.push(ExprCommand::Cast(
-              retval.result_type.clone(),
-              func.return_type.clone(),
-            ));
-          }
-          func.code.push(Statement::Return(retval));
-        }
-        SetterCall(setter_call) => 'match_block: {
-          // get variable that will be mutated
-          let Some(var) = var_in_scope.get(&setter_call.varname) else {
-            errors.push(CompileError::UndefinedVariable(
-              setter_call.varname.clone(),
-              statement.begin,
-            ));
-            break 'match_block;
-          };
-          // get function that is treated as setter
-          let Some(ref setter) = var.setter else {
-            errors.push(CompileError::TryMutateImmutableVar(
-              setter_call.varname.clone(),
-              statement.begin,
-            ));
-            break 'match_block;
-          };
-          let setter = setter.borrow();
-          // prepare arguments of setter
-          match exprcomand_from_token_vec(
-            &setter_call.args,
-            &setter,
-            &var_in_scope,
-            &get_accessible_fn_by_name,
-          ) {
-            Ok(arg_stack) => func.code.push(Statement::SetterCall(MutationInfo {
-              setter: setter.idx,
-              var: var.idx,
-              arg_stack,
-            })),
             Err(mut e) => errors.append(&mut e),
           }
         }
+        Return(expr) => match Statement::new_return(
+          expr,
+          &func.return_type,
+          statement.begin,
+          statement.end,
+          &var_in_scope,
+          &get_accessible_fn_by_name,
+        ) {
+          Ok(stat) => func.code.push(stat),
+          Err(mut e) => errors.append(&mut e),
+        },
+        SetterCall(setter_call) => match Statement::new_setter_call(
+          setter_call,
+          statement.begin,
+          &var_in_scope,
+          &get_accessible_fn_by_name,
+        ) {
+          Ok(stat) => func.code.push(stat),
+          Err(mut e) => errors.append(&mut e),
+        },
       }
     }
 

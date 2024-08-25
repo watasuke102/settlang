@@ -1,0 +1,4 @@
+# function named `main` is entrypoint
+fn main() -> i32 {
+  ret 0
+}

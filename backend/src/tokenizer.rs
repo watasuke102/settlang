@@ -187,8 +187,7 @@ fn expect_var_spec(code: &mut SourceCode) -> TokenizeResult<(String, Type, Optio
   let name = expect_identifier(code)?;
   char(':')(code.skip_space()).or(Err(TokenizeError::Expected(": <type>")))?;
   code.skip_space();
-  let pos = code.lines_and_cols();
-  let type_ident = expect_identifier(code).or(Err(TokenizeError::ExpectedType))?;
+  let vartype = expect_type(code)?;
   let setter = if char('|')(code.skip_space()).is_ok() {
     let pos = code.skip_space().lines_and_cols();
     let name = expect_identifier(code).or(Err(TokenizeError::ExpectedFunction))?;
@@ -196,7 +195,7 @@ fn expect_var_spec(code: &mut SourceCode) -> TokenizeResult<(String, Type, Optio
   } else {
     None
   };
-  Ok((name, Type { type_ident, pos }, setter))
+  Ok((name, vartype, setter))
 }
 
 #[derive(Debug, Clone)]
@@ -238,12 +237,7 @@ fn expect_fn_declaration(code: &mut SourceCode) -> TokenizeResult<Function> {
   char(')')(code.skip_space()).or(Err(TokenizeError::UnclosedDelimiter))?;
 
   let return_type = match str("->")(code.skip_space()) {
-    Ok(()) => {
-      code.skip_space();
-      let pos = code.lines_and_cols();
-      let type_ident = expect_identifier(code).or(Err(TokenizeError::ExpectedType))?;
-      Some(Type { type_ident, pos })
-    }
+    Ok(()) => Some(expect_type(code.skip_space())?),
     Err(ParseError::PartialMatch(_)) => return Err(TokenizeError::Expected("-> <type>")),
     Err(_) => None,
   };
@@ -592,6 +586,12 @@ fn expect_identifier(code: &mut SourceCode) -> TokenizeResult<String> {
   )
   .or(Err(TokenizeError::NoMatch))?;
   Ok(identity)
+}
+
+fn expect_type(code: &mut SourceCode) -> TokenizeResult<Type> {
+  let pos = code.lines_and_cols();
+  let type_ident = expect_identifier(code).or(Err(TokenizeError::ExpectedType))?;
+  Ok(Type { type_ident, pos })
 }
 
 #[cfg(test)]

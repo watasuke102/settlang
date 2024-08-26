@@ -24,7 +24,7 @@ fn main() {
     match arg.as_str() {
       "-h" | "--help" => {
         println!(
-          "Usage: {} [-h|--help] [--verbose] [-o|--out] <file>",
+          "Usage: {} [-h|--help] [-v|--version] [--verbose] [-o|--out] <file>",
           command_name
         );
         process::exit(0);

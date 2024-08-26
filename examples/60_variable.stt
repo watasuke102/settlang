@@ -1,8 +1,8 @@
-fn main() -> i32 {
+fn main() -> i64 {
   let a: i32 = 12345
   let b: i32 = 15
-  let c: i64 = 35
+  let c: i32 = 35
   let d: i64 = 7
   let a: i64 = 3 # shadowing
-  ret a+b+c+d
+  ret a + (b+c)_i64 + d
 }

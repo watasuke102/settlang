@@ -45,8 +45,32 @@ pub enum CompileError {
     source_code::Position,
     source_code::Position,
   ),
+  // lhs, rhs, begin, end
+  MismatchBinopType(
+    compile::Type,
+    compile::Type,
+    source_code::Position,
+    source_code::Position,
+  ),
+  // nth arg, fn_name, expect, actual, begin, end
+  MismatchFnArgType(
+    usize,
+    String,
+    compile::Type,
+    compile::Type,
+    source_code::Position,
+    source_code::Position,
+  ),
   // expect, actual, begin, end
   MismatchReturnExprType(
+    compile::Type,
+    compile::Type,
+    source_code::Position,
+    source_code::Position,
+  ),
+  // varname, vartype, initial value type, begin, end
+  MismatchVarInitType(
+    String,
     compile::Type,
     compile::Type,
     source_code::Position,
@@ -129,6 +153,37 @@ impl CompileError {
           begin,
           from,
           to,
+          code.ranged_string(begin, end)
+        ),
+        MismatchBinopType(lhs, rhs, begin, end) => format!(
+          "[error] {} -> mismatched type; left-hand side={:?}, right-hand side={:?}\n{}",
+          begin,
+          lhs,
+          rhs,
+          code.ranged_string(begin, end)
+        ),
+        MismatchFnArgType(nth, fn_name, expect, actual, begin, end) => format!(
+          "[error] {} -> arg[{}] of function '{}' is {:?} but passed {:?}\n{}",
+          begin,
+          nth,
+          fn_name,
+          expect,
+          actual,
+          code.ranged_string(begin, end)
+        ),
+        MismatchReturnExprType(expect, actual, begin, end) => format!(
+          "[error] {} -> mismatched type; function return type is {:?} but return value is {:?}\n{}",
+          begin,
+          expect,
+          actual,
+          code.ranged_string(begin, end)
+        ),
+        MismatchVarInitType(varname,vartype, initial_value_type, begin, end) => format!(
+          "[error] {} -> variable '{}' is {:?} but initial value is {:?}\n{}",
+          begin,
+          varname,
+          vartype,
+          initial_value_type,
           code.ranged_string(begin, end)
         ),
         MismatchSetterReturnType(setter_name,varname, vartype, setter_retval_type, pos) => format!(

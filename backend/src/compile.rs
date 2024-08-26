@@ -30,19 +30,14 @@ pub enum Type {
   I64,
 }
 impl Type {
-  fn cast(a: &Self, b: &Self) -> Option<Self> {
-    if a == &Self::Void || b == &Self::Void {
-      return None;
+  fn cast(from: &Self, to: &Self) -> Option<ExprCommand> {
+    debug_assert_ne!(from, to, "make sure from != to before call Type::cast");
+    use Type::*;
+    match (from, to) {
+      (I32, I64) => Some(ExprCommand::CastI32ToI64),
+      (I64, I32) => Some(ExprCommand::CastI64ToI32),
+      _ => None,
     }
-    if (a == &Self::I32 && b == &Self::I64) || // _
-       (a == &Self::I64 && b == &Self::I32)
-    {
-      return Some(Self::I64);
-    }
-    if a == b {
-      return Some(a.clone());
-    }
-    None
   }
 }
 impl TryFrom<tokenizer::Type> for Type {
@@ -189,7 +184,7 @@ impl Statement {
     var_in_scope: &HashMap<String, Variable>,
     get_accessible_fn_by_name: &AccessibleFnGetter,
   ) -> CompileResult<Self> {
-    let mut retval = match expr {
+    let retval = match expr {
       Some(expr) => {
         Expression::from_token(expr, parent_func, &var_in_scope, &get_accessible_fn_by_name)?
       }
@@ -199,18 +194,12 @@ impl Statement {
       },
     };
     if parent_func.return_type != retval.result_type {
-      if parent_func.return_type == Type::Void || retval.result_type == Type::Void {
-        return Err(vec![CompileError::MismatchReturnExprType(
-          parent_func.return_type.clone(),
-          retval.result_type,
-          statement_begin,
-          statement_end,
-        )]);
-      }
-      retval.expr_stack.push(ExprCommand::Cast(
-        retval.result_type.clone(),
+      return Err(vec![CompileError::MismatchReturnExprType(
         parent_func.return_type.clone(),
-      ));
+        retval.result_type,
+        statement_begin,
+        statement_end,
+      )]);
     }
     Ok(Statement::Return(retval))
   }
@@ -315,10 +304,11 @@ pub enum ExprCommand {
   BitOr,
   BitAnd,
   IfExpr(If),
-  Cast(Type, Type), // from, to
   PushImm(i32),
   PushVar(usize),
   FnCall(usize),
+  CastI32ToI64,
+  CastI64ToI32,
 }
 #[derive(Debug, Clone)]
 pub struct If {
@@ -379,30 +369,14 @@ impl Expression {
         let (Ok(mut lhs), Ok(mut rhs)) = (lhs, rhs) else {
           return;
         };
-        match Type::cast(&lhs.result_type, &rhs.result_type) {
-          Some(t) => result_type = t,
-          None => {
-            errors.push(CompileError::InvalidCast(
-              lhs.result_type.clone(),
-              rhs.result_type.clone(),
-              token.begin,
-              token.end,
-            ));
-            return;
-          }
-        }
-        // cast if type does not match
-        if lhs.result_type != result_type {
-          lhs.expr_stack.push(ExprCommand::Cast(
+        if lhs.result_type != rhs.result_type {
+          errors.push(CompileError::MismatchBinopType(
             lhs.result_type.clone(),
-            result_type.clone(),
-          ));
-        }
-        if rhs.result_type != result_type {
-          rhs.expr_stack.push(ExprCommand::Cast(
             rhs.result_type.clone(),
-            result_type.clone(),
+            token.begin,
+            token.end,
           ));
+          return;
         }
         // append lhs and rhs to expr stack
         {
@@ -462,6 +436,42 @@ impl Expression {
         }
         None => errors.push(CompileError::UndefinedVariable(var_name.clone(), *pos)),
       },
+      Cast(to_type, expr) => 'cast: {
+        let mut expr = match Expression::from_token(
+          &token.replaced(*expr.clone()),
+          parent_func,
+          var_in_scope,
+          get_accessible_fn_by_name,
+        ) {
+          Ok(res) => res,
+          Err(mut e) => {
+            errors.append(&mut e);
+            break 'cast;
+          }
+        };
+        let to_type = match Type::try_from(to_type.clone()) {
+          Ok(t) => t,
+          Err(e) => {
+            errors.push(e);
+            break 'cast;
+          }
+        };
+        // if inner type is same with cast target type, no comand is required
+        if expr.result_type != to_type {
+          let Some(cast_command) = Type::cast(&expr.result_type, &to_type) else {
+            errors.push(CompileError::InvalidCast(
+              expr.result_type.clone(),
+              to_type.clone(),
+              token.begin,
+              token.end,
+            ));
+            break 'cast;
+          };
+          expr.expr_stack.push(cast_command);
+        }
+        result_type = to_type;
+        expr_stack.append(&mut expr.expr_stack);
+      }
       FnCall(fn_name, arguments, pos) => 'fn_call: {
         let Some(called_fn) = get_accessible_fn_by_name(fn_name) else {
           errors.push(CompileError::UndefinedFunction(fn_name.clone(), *pos));
@@ -589,13 +599,18 @@ fn exprcomand_from_token_vec(
   for (i, arg_expr) in token_vec.iter().enumerate() {
     match Expression::from_token(arg_expr, callee, var_in_scope, get_accessible_fn_by_name) {
       Ok(mut expr) => {
-        if expr.result_type != callee.args[i].vartype {
-          expr.expr_stack.push(ExprCommand::Cast(
-            expr.result_type.clone(),
+        if expr.result_type == callee.args[i].vartype {
+          arguments_expr.append(&mut expr.expr_stack);
+        } else {
+          errors.push(CompileError::MismatchFnArgType(
+            i,
+            callee.name.clone(),
             callee.args[i].vartype.clone(),
+            expr.result_type.clone(),
+            arg_expr.begin,
+            arg_expr.end,
           ));
         }
-        arguments_expr.append(&mut expr.expr_stack);
       }
       Err(mut err) => {
         errors.append(&mut err);
@@ -789,7 +804,7 @@ impl Function {
               continue;
             }
           };
-          let mut initial_value = match Expression::from_token(
+          let initial_value = match Expression::from_token(
             &var.initial_value,
             &uncompiled,
             &var_in_scope,
@@ -802,9 +817,12 @@ impl Function {
             }
           };
           if initial_value.result_type != vartype {
-            initial_value.expr_stack.push(ExprCommand::Cast(
-              initial_value.result_type.clone(),
+            errors.push(CompileError::MismatchVarInitType(
+              var.name.clone(),
               vartype.clone(),
+              initial_value.result_type.clone(),
+              statement.begin,
+              statement.end,
             ));
           }
           match func.add_variable(
@@ -1060,7 +1078,6 @@ mod test {
             let rhs = stack.pop().unwrap();
             stack.push(lhs / rhs);
           }
-          Cast(_, _) => (), // FIXME?
           PushImm(v) => stack.push(*v),
           PushVar(idx) => {
             assert_eq!(*idx, 0);
@@ -1124,7 +1141,7 @@ mod test {
             )),
             Box::new(Constant(1)),
           ),
-          CompileError::InvalidCast(
+          CompileError::MismatchBinopType(
             Type::Void,
             Type::I32,
             source_code::Position::default(),

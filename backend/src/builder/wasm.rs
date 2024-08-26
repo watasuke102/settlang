@@ -210,15 +210,14 @@ fn assemble_expr(commands: &Vec<compile::ExprCommand>) -> Result<Vec<u8>, String
         res.push(Call as u8);
         res.append(&mut to_signed_leb128(*idx as i64));
       }
-      Cast(compile::Type::I32, compile::Type::I64) => {
+      CastI32ToI64 => {
         res.push(ExtendSignedI32ToI64 as u8);
         current_type = Numtype::I64;
       }
-      Cast(compile::Type::I64, compile::Type::I32) => {
+      CastI64ToI32 => {
         res.push(WrapI64ToI32 as u8);
         current_type = Numtype::I32;
       }
-      Cast(_, _) => return Err(format!("Unknown command : {:?}", command)),
     }
   }
   Ok(res)

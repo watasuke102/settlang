@@ -27,6 +27,14 @@ pub struct Type {
   pub type_ident: String,
   pub pos:        source_code::Position,
 }
+impl PartialEq for Type {
+  fn eq(&self, other: &Self) -> bool {
+    self.type_ident == other.type_ident
+  }
+  fn ne(&self, other: &Self) -> bool {
+    self.type_ident != other.type_ident
+  }
+}
 
 pub fn expect_code(code: &mut SourceCode) -> TokenizeResult<Vec<Statement>> {
   let mut statements = Vec::new();
@@ -327,6 +335,7 @@ impl PartialEq for Expression {
 pub enum ExprElement {
   Constant(i32),
   Variable(String, source_code::Position),
+  Cast(Type, Box<ExprElement>),
   FnCall(String, Vec<Expression>, source_code::Position),
   IfExpr(Box<If>),
 
@@ -363,6 +372,7 @@ impl ExprElement {
       GreaterEq(lhs, rhs) => Ok((lhs._eval()? >= rhs._eval()?) as i32),
       LogicAnd(lhs, rhs) => Ok(((lhs._eval()? != 0) && (rhs._eval()? != 0)) as i32),
       LogicOr(lhs, rhs) => Ok(((lhs._eval()? != 0) || (rhs._eval()? != 0)) as i32),
+      Cast(_, expr) => Ok(expr._eval()?),
       _ => Err(()),
     }
   }
@@ -499,6 +509,13 @@ fn expect_expression(code: &mut SourceCode) -> TokenizeResult<Expression> {
         return Err(TokenizeError::ExpectedExpression);
       };
       char(')')(code.skip_space()).or(Err(TokenizeError::UnclosedDelimiter))?;
+      // cast
+      if char('_')(code).is_ok() {
+        return Ok(ExprElement::Cast(
+          expect_type(code)?,
+          Box::new(expr.element),
+        ));
+      }
       return Ok(expr.element);
     }
 
@@ -938,6 +955,35 @@ mod test {
         code,
         expr.element
       );
+    }
+  }
+  #[test]
+  fn test_expect_expression_cast() {
+    for (code, expect_expr, expect_cast_type) in [
+      ("(-1)_i64", Some(-1), Some("i64")),
+      ("(0)_ i32", None, None),
+      ("(1) _i64", Some(1), None),
+      ("(2) _ i32", Some(2), None),
+    ] {
+      let expr = match expect_expression(&mut SourceCode::new(code)) {
+        Ok(res) => res,
+        Err(e) => {
+          if expect_expr.is_none() {
+            continue;
+          } else {
+            panic!("code `{}` is not parsed as expression (err: {:?})", code, e);
+          }
+        }
+      };
+      assert_eq!(expr.element._eval().unwrap(), expect_expr.unwrap());
+      let ExprElement::Cast(to_type, _) = expr.element else {
+        if expect_cast_type.is_none() {
+          continue;
+        } else {
+          panic!("code `{}` is not parsed as Cast", code);
+        }
+      };
+      assert_eq!(to_type.type_ident, expect_cast_type.unwrap());
     }
   }
   #[test]

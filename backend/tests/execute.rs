@@ -6,9 +6,9 @@ fn build_and_execute(name: &str, code: &str, expect: i64) {
   // build
   let mut code = backend::source_code::SourceCode::new(code);
   let program =
-    backend::compile(&mut code).unwrap_or_else(|e| panic!("failed to build {}\n{}", name, e));
+    backend::compile(&mut code).unwrap_or_else(|e| panic!("failed to build '{}'\n{}", name, e));
   let wasm = backend::builder::wasm::build(program)
-    .unwrap_or_else(|e| panic!("failed to build {}\n{}", name, e));
+    .unwrap_or_else(|e| panic!("failed to build '{}'\n{}", name, e));
   // prepare wasmer
   let mut store = wasmer::Store::default();
   let module = wasmer::Module::from_binary(&store, &wasm[0..]).unwrap();

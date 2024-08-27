@@ -15,3 +15,6 @@ clean:
 	rm $(COMPILER)
 
 .PHONY: all playground clean test
+
+%.wasm: %.stt
+	cargo run -p cli_compiler -- -o $@ $<

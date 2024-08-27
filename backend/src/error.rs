@@ -67,6 +67,19 @@ pub enum CompileError {
     source_code::Position,
     source_code::Position,
   ),
+  // 'begin' type, 'end' type, begin, end
+  MismatchForRangeType(
+    compile::Type,
+    compile::Type,
+    source_code::Position,
+    source_code::Position,
+  ),
+  // range type, begin, end
+  WrongForRangeType(
+    compile::Type,
+    source_code::Position,
+    source_code::Position,
+  ),
   TryMutateImmutableVar(String, source_code::Position),
   NotAllowedStatementInLimitedBlock(source_code::Position,source_code::Position),
   GlobalStatementWithMain(Vec<usize>),
@@ -128,26 +141,39 @@ impl CompileError {
           code.pointed_string(pos)
         ),
         MismatchReturnExprType(expect, actual, begin, end) => format!(
-        "[error] {} -> mismatched type; function return type is {:?} but return value is {:?}\n{}",
-        begin,
-        expect,
-        actual,
-        code.ranged_string(begin, end)
-      ),
-      MismatchIfLastExpr(then_type, otherwise_type, begin, end) => format!(
-        "[error] {} -> last expression type of 'if' is different; if {{ {:?} }} else {{ {:?} }}\n{}",
-        begin,
-        then_type,
-        otherwise_type, 
-        code.ranged_string(begin, end)
-      ),
+          "[error] {} -> mismatched type; function return type is {:?} but return value is {:?}\n{}",
+          begin,
+          expect,
+          actual,
+          code.ranged_string(begin, end)
+        ),
+        MismatchIfLastExpr(then_type, otherwise_type, begin, end) => format!(
+          "[error] {} -> last expression type of 'if' is different; if {{ {:?} }} else {{ {:?} }}\n{}",
+          begin,
+          then_type,
+          otherwise_type, 
+          code.ranged_string(begin, end)
+        ),
+        MismatchForRangeType(begin_type, end_type, begin_pos, end_pos) => format!(
+          "[error] {} -> mismatched type; for range begins with {:?} but ends with {:?}\n{}",
+          begin_pos,
+          begin_type,
+          end_type,
+          code.ranged_string(begin_pos, end_pos)
+        ),
+        WrongForRangeType(range_type, begin_pos, end_pos) => format!(
+          "[error] {} -> for range should be integer but it is {:?}\n{}",
+          begin_pos,
+          range_type,
+          code.ranged_string(begin_pos, end_pos)
+        ),
         TryMutateImmutableVar(varname, pos) => format!(
           "[error] {} -> try to mutate the variable '{}' but it is immutable (does not have setter)\n{}",
           pos,
           varname,
           code.pointed_string(pos)
         ),
-        NotAllowedStatementInLimitedBlock(begin,end)=> format!(
+        NotAllowedStatementInLimitedBlock(begin, end)=> format!(
           "[error] {} -> this statement is not allowed in if/for block\n{}",
           begin,
           code.ranged_string(begin, end)

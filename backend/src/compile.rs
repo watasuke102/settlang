@@ -166,12 +166,20 @@ pub enum Statement {
   ExprStatement(Expression, /** should_drop: */ bool),
   Return(Expression),
   SetterCall(MutationInfo),
+  ForLoop(For),
 }
 #[derive(Debug, Clone)]
 pub struct MutationInfo {
   pub setter:    usize,
   pub var:       usize,
   pub arg_stack: Vec<ExprCommand>,
+}
+#[derive(Debug, Clone)]
+pub struct For {
+  pub cnt_var_idx: usize,
+  pub begin:       Expression,
+  pub end:         Expression,
+  pub code:        Vec<Statement>,
 }
 impl Statement {
   fn new_return(
@@ -846,6 +854,93 @@ impl Function {
           Ok(stat) => func.code.push(stat),
           Err(mut e) => errors.append(&mut e),
         },
+        ForLoop(for_loop) => 'for_loop: {
+          let begin = match Expression::from_token(
+            &for_loop.begin,
+            &uncompiled,
+            &var_in_scope,
+            &get_accessible_fn_by_name,
+          ) {
+            Ok(res) => res,
+            Err(mut e) => {
+              errors.append(&mut e);
+              break 'for_loop;
+            }
+          };
+          let mut end = match Expression::from_token(
+            &for_loop.end,
+            &uncompiled,
+            &var_in_scope,
+            &get_accessible_fn_by_name,
+          ) {
+            Ok(res) => res,
+            Err(mut e) => {
+              errors.append(&mut e);
+              break 'for_loop;
+            }
+          };
+          if for_loop.inclusive {
+            end.expr_stack.push(ExprCommand::PushImm(1));
+            end.expr_stack.push(ExprCommand::Add);
+          }
+          // both begin and end should be same and integer
+          if begin.result_type != end.result_type {
+            errors.push(CompileError::MismatchForRangeType(
+              begin.result_type.clone(),
+              end.result_type.clone(),
+              for_loop.begin.begin,
+              for_loop.end.end,
+            ));
+            break 'for_loop;
+          }
+          if end.result_type != Type::I32 && end.result_type != Type::I64 {
+            errors.push(CompileError::WrongForRangeType(
+              end.result_type.clone(),
+              for_loop.begin.begin,
+              for_loop.end.end,
+            ));
+            break 'for_loop;
+          }
+          // store variable info that has the same name
+          let prev_var = var_in_scope.remove(&for_loop.varname);
+          // regist counter variable
+          let cnt_var_idx = func
+            .add_variable(
+              for_loop.varname.clone(),
+              begin.result_type.clone(),
+              &None,
+              begin.clone(),
+              &uncompiled,
+              &mut var_in_scope,
+            )
+            .expect(
+              "add_variable() only returns Err related to setter, so this is expected to succeed",
+            );
+          let code = match Statement::vec_from_limited_block(
+            &for_loop.code,
+            &uncompiled,
+            &var_in_scope,
+            &get_accessible_fn_by_name,
+          ) {
+            Ok(res) => res,
+            Err(mut e) => {
+              errors.append(&mut e);
+              Vec::new()
+            }
+          };
+          func.code.push(Statement::ForLoop(For {
+            cnt_var_idx,
+            begin,
+            end,
+            code,
+          }));
+          // remove or restore counter variable
+          if let Some(prev_var) = prev_var {
+            var_in_scope.insert(for_loop.varname.clone(), prev_var.to_owned());
+          } else {
+            var_in_scope.remove(&for_loop.varname).unwrap();
+          }
+        }
       }
     }
 

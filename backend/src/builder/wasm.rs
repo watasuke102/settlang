@@ -111,6 +111,43 @@ fn assemble_statements(statements: &Vec<compile::Statement>) -> Result<Vec<u8>, 
         expr.push(Inst::LocalSet as u8);
         expr.append(&mut to_signed_leb128(mutate_info.var as i64));
       }
+      ForLoop(for_loop) => {
+        // FIXME : initialize couner value here
+        expr.push(Inst::Loop as u8);
+        expr.push(0x40); // void; 'for' block does not (is not expected to) return value
+
+        expr.append(&mut assemble_statements(&for_loop.code)?);
+
+        // i = 'i+1'
+        expr.push(Inst::LocalGet as u8);
+        expr.append(&mut to_signed_leb128(for_loop.cnt_var_idx as i64));
+        if for_loop.end.result_type == compile::Type::I32 {
+          expr.push(Inst::ConstI32 as u8);
+          expr.append(&mut to_signed_leb128(1));
+          expr.push(Inst::AddI32 as u8);
+        } else if for_loop.end.result_type == compile::Type::I64 {
+          expr.push(Inst::ConstI64 as u8);
+          expr.append(&mut to_signed_leb128(1));
+          expr.push(Inst::AddI64 as u8);
+        } else {
+          unreachable!();
+        }
+        // 'i =' i+1
+        expr.push(Inst::LocalTee as u8);
+        expr.append(&mut to_signed_leb128(for_loop.cnt_var_idx as i64));
+        // if i == end (i is remained on the stack)
+        expr.append(&mut assemble_expr(&for_loop.end.expr_stack)?);
+        if for_loop.end.result_type == compile::Type::I32 {
+          expr.push(Inst::NonEqI32 as u8);
+        } else if for_loop.end.result_type == compile::Type::I64 {
+          expr.push(Inst::NonEqI64 as u8);
+        } else {
+          unreachable!();
+        }
+        expr.push(Inst::BranchIf as u8);
+        expr.push(0); // break depth == 1
+        expr.push(Inst::End as u8);
+      }
     }
   }
   Ok(expr)
@@ -204,15 +241,19 @@ fn to_wasm_numtype(compile_type: &compile::Type) -> Result<u8, String> {
 }
 
 enum Inst {
+  Loop                 = 0x03,
   If                   = 0x04,
   Else                 = 0x05,
   End                  = 0x0b,
+  BranchIf             = 0x0d,
   Return               = 0x0f,
   Call                 = 0x10,
   Drop                 = 0x1a,
   LocalGet             = 0x20,
   LocalSet             = 0x21,
+  LocalTee             = 0x22,
   ConstI32             = 0x41,
+  ConstI64             = 0x42,
 
   EqI32                = 0x46,
   NonEqI32             = 0x47,

@@ -11,6 +11,7 @@ type TokenizeResult<'s, T> = Result<T, TokenizeError>;
 pub enum StatementKind {
   FnDecl(Function),
   VarDecl(Variable),
+  ForLoop(For),
   SetterCall(SetterCall),
   ExprStatement(Expression),
   Return(Option<Expression>),
@@ -71,6 +72,17 @@ fn expect_statement(code: &mut SourceCode) -> TokenizeResult<Statement> {
     Ok(res) => {
       return Ok(Statement {
         kind:  StatementKind::VarDecl(res),
+        begin: pos,
+        end:   code.lines_and_cols(),
+      })
+    }
+    Err(TokenizeError::NoMatch) => (),
+    Err(e) => return Err(e),
+  }
+  match expect_for_loop(code) {
+    Ok(res) => {
+      return Ok(Statement {
+        kind:  StatementKind::ForLoop(res),
         begin: pos,
         end:   code.lines_and_cols(),
       })
@@ -195,6 +207,38 @@ fn expect_var_spec(code: &mut SourceCode) -> TokenizeResult<(String, Type, Optio
     None
   };
   Ok((name, vartype, setter))
+}
+
+#[derive(Debug, Clone)]
+pub struct For {
+  pub varname:   String,
+  pub inclusive: bool,
+  pub begin:     Expression,
+  pub end:       Expression,
+  pub code:      Vec<Statement>,
+}
+fn expect_for_loop(code: &mut SourceCode) -> TokenizeResult<For> {
+  expect_keyword(code, "for")?;
+  // use closure to prevent moving value
+  let err = || TokenizeError::Expected("for <varname> in <begin>..<end>");
+  let varname = expect_ident(code.skip_space())?;
+  seq(vec![str("in"), mul(space())])(code.skip_space()).or(Err(err()))?;
+  let begin = expect_expression(code.skip_space()).or(Err(err()))?;
+  str("..")(code.skip_space()).or(Err(err()))?;
+  let inclusive = char('=')(code.skip_space()).is_ok();
+  let end = expect_expression(code.skip_space()).or(Err(err()))?;
+
+  char('{')(code.skip_space()).or(Err(TokenizeError::Expected("{ <code>? }")))?;
+  let for_code = expect_code(code.skip_space())?;
+  char('}')(code.skip_space()).or(Err(TokenizeError::UnclosedDelimiter))?;
+
+  Ok(For {
+    varname,
+    inclusive,
+    begin,
+    end,
+    code: for_code,
+  })
 }
 
 #[derive(Debug, Clone)]
@@ -721,6 +765,54 @@ mod test {
         assert_eq!(function.args[i].name, expected_arg_names[i]);
         assert_eq!(function.args[i].vartype.type_ident, "i32");
       }
+    }
+  }
+
+  #[test]
+  fn test_expect_for_loop() {
+    for (code, expect) in [
+      ("for i in 0..9{}", Some(("i", false, 0, 9))),
+      ("for j in -2..=5 {}", Some(("j", true, -2, 5))),
+      ("for k in 1+2..5-2 {}", Some(("k", false, 3, 3))),
+      ("for x in false .. =true {}", Some(("x", true, 0, 1))),
+      (
+        r"for
+          y
+          in
+          0
+          ..
+          =
+          1 {}",
+        Some(("y", true, 0, 1)),
+      ),
+      ("for a in ..1{}", None),
+      ("for b in 2.. {}", None),
+      ("for d 3..4 {}", None),
+    ] {
+      let (for_loop, (varname, inclusive, begin, end)) =
+        match expect_for_loop(&mut SourceCode::new(code)) {
+          Ok(res) => {
+            if let Some(expect) = expect {
+              (res, expect)
+            } else {
+              panic!("code `{}` is expected to fail but it succeeded", code);
+            }
+          }
+          Err(err) => {
+            if expect.is_some() {
+              panic!(
+                "code `{}` is expected to succeed but it fails ({:?})",
+                code, err
+              );
+            } else {
+              continue;
+            }
+          }
+        };
+      assert_eq!(&for_loop.varname, varname);
+      assert_eq!(for_loop.inclusive, inclusive);
+      assert_eq!(for_loop.begin.element._eval().unwrap(), begin);
+      assert_eq!(for_loop.end.element._eval().unwrap(), end);
     }
   }
 

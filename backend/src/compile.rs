@@ -143,19 +143,17 @@ pub struct Function {
 
 #[derive(Clone)]
 pub struct Variable {
-  pub idx:           usize,
-  pub vartype:       Type,
-  setter:            Option<UncompiledFnCarrier>,
-  pub initial_value: Expression,
+  pub idx:     usize,
+  pub vartype: Type,
+  setter:      Option<UncompiledFnCarrier>,
 }
 impl fmt::Debug for Variable {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
     write!(
       f,
-      "[{}: {:?}, initial={:?}, setter={:?}]",
+      "[{}: {:?}, setter={:?}]",
       self.idx,
       self.vartype,
-      self.initial_value,
       self.setter.as_ref().and_then(|f| Some(f.borrow().idx))
     )
   }
@@ -163,6 +161,7 @@ impl fmt::Debug for Variable {
 
 #[derive(Debug, Clone)]
 pub enum Statement {
+  VarInitialize(usize, Expression),
   ExprStatement(Expression, /** should_drop: */ bool),
   Return(Expression),
   SetterCall(MutationInfo),
@@ -320,7 +319,6 @@ pub enum ExprCommand {
   PushImm(i32),
   PushVar(usize),
   FnCall(usize),
-  GetInitialValueFromArg(usize), // index of arguments
 }
 #[derive(Debug, Clone)]
 pub struct If {
@@ -345,12 +343,6 @@ pub struct Expression {
   pub result_type: Type,
 }
 impl Expression {
-  fn arg(idx: usize, result_type: Type) -> Self {
-    Expression {
-      expr_stack: vec![ExprCommand::GetInitialValueFromArg(idx)],
-      result_type,
-    }
-  }
   fn from_token(
     token: &tokenizer::Expression,
     parent_func: &Ref<UncompiledFunction>,
@@ -770,12 +762,11 @@ impl Function {
       ..Function::default()
     };
     let mut var_in_scope: HashMap<String, Variable> = HashMap::new();
-    for (i, arg) in uncompiled.args.iter().enumerate() {
+    for arg in uncompiled.args.iter() {
       if let Err(err) = func.add_variable(
         arg.name.clone(),
         arg.vartype.clone(),
         &arg.setter,
-        Expression::arg(i, arg.vartype.clone()),
         &uncompiled,
         &mut var_in_scope,
       ) {
@@ -816,15 +807,15 @@ impl Function {
               vartype.clone(),
             ));
           }
-          if let Err(err) = func.add_variable(
+          match func.add_variable(
             var.name.clone(),
             vartype,
             &var.setter,
-            initial_value,
             &uncompiled,
             &mut var_in_scope,
           ) {
-            errors.push(err);
+            Ok(idx) => func.code.push(Statement::VarInitialize(idx, initial_value)),
+            Err(e) => errors.push(e),
           }
         }
         ExprStatement(expr) => {
@@ -909,7 +900,6 @@ impl Function {
               for_loop.varname.clone(),
               begin.result_type.clone(),
               &None,
-              begin.clone(),
               &uncompiled,
               &mut var_in_scope,
             )
@@ -961,7 +951,6 @@ impl Function {
     name: String,
     vartype: Type,
     setter: &Option<tokenizer::Setter>,
-    initial_value: Expression,
     uncompiled: &Ref<UncompiledFunction>,
     var_in_scope: &mut HashMap<String, Variable>,
   ) -> Result<usize, CompileError> {
@@ -970,7 +959,6 @@ impl Function {
       idx,
       vartype: vartype.clone(),
       setter: None, // temporally
-      initial_value,
     };
     let retval =
       setter.as_ref().and_then(
@@ -1028,17 +1016,12 @@ mod test {
   #[test]
   fn test_expression_from_token() {
     let varname = "a".to_string();
-    let var_value = 10;
     let var_in_scope: HashMap<String, Variable> = HashMap::from([(
       varname.clone(),
       Variable {
-        idx:           0,
-        vartype:       Type::I32,
-        setter:        None,
-        initial_value: Expression {
-          expr_stack:  vec![ExprCommand::PushImm(var_value)],
-          result_type: Type::I32,
-        },
+        idx:     0,
+        vartype: Type::I32,
+        setter:  None,
       },
     )]);
     let func = Rc::new(RefCell::new(UncompiledFunction {
@@ -1081,7 +1064,7 @@ mod test {
           PushImm(v) => stack.push(*v),
           PushVar(idx) => {
             assert_eq!(*idx, 0);
-            stack.push(var_value);
+            stack.push(10);
           }
           FnCall(idx) => assert_eq!(*idx, 0),
           _ => unreachable!(),

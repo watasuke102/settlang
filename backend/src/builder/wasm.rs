@@ -67,18 +67,12 @@ fn code_section_contents(functions: &Vec<compile::Function>) -> Result<Vec<u8>, 
   let mut contents = to_signed_leb128(functions.len() as i64);
   for function in functions {
     let mut locals = to_signed_leb128(function.variables.len() as i64);
-    let mut expr = Vec::new();
-
     for var in &function.variables {
       locals.push(1); // local decl count (?)
       locals.push(to_wasm_numtype(&var.vartype)?);
-      // initialize variable
-      expr.append(&mut assemble_expr(&var.initial_value.expr_stack)?);
-      expr.push(Inst::LocalSet as u8);
-      expr.append(&mut to_signed_leb128(var.idx as i64));
     }
+    let mut expr = Vec::new();
     expr.append(&mut assemble_statements(&function.code)?);
-
     expr.push(Inst::End as u8);
     contents.append(&mut to_signed_leb128((locals.len() + expr.len()) as i64)); // func body size
     contents.append(&mut locals);
@@ -91,6 +85,11 @@ fn assemble_statements(statements: &Vec<compile::Statement>) -> Result<Vec<u8>, 
   for statement in statements.iter() {
     use compile::Statement::*;
     match statement {
+      VarInitialize(idx, initial_value) => {
+        expr.append(&mut assemble_expr(&initial_value.expr_stack)?);
+        expr.push(Inst::LocalSet as u8);
+        expr.append(&mut to_signed_leb128(*idx as i64));
+      }
       ExprStatement(e, should_drop) => {
         expr.append(&mut assemble_expr(&e.expr_stack)?);
         if e.result_type != compile::Type::Void && *should_drop {
@@ -112,7 +111,10 @@ fn assemble_statements(statements: &Vec<compile::Statement>) -> Result<Vec<u8>, 
         expr.append(&mut to_signed_leb128(mutate_info.var as i64));
       }
       ForLoop(for_loop) => {
-        // FIXME : initialize couner value here
+        expr.append(&mut assemble_expr(&for_loop.begin.expr_stack)?);
+        expr.push(Inst::LocalSet as u8);
+        expr.append(&mut to_signed_leb128(for_loop.cnt_var_idx as i64));
+
         expr.push(Inst::Loop as u8);
         expr.push(0x40); // void; 'for' block does not (is not expected to) return value
 
@@ -200,7 +202,7 @@ fn assemble_expr(commands: &Vec<compile::ExprCommand>) -> Result<Vec<u8>, String
         res.push(ConstI32 as u8);
         res.append(&mut to_signed_leb128(*imm as i64))
       }
-      PushVar(idx) | GetInitialValueFromArg(idx) => {
+      PushVar(idx) => {
         res.push(LocalGet as u8);
         res.append(&mut to_signed_leb128(*idx as i64));
       }

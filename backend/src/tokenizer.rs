@@ -105,9 +105,8 @@ fn expect_statement(code: &mut SourceCode) -> TokenizeResult<Statement> {
 }
 
 fn expect_return(code: &mut SourceCode) -> TokenizeResult<Option<Expression>> {
-  str("ret")(code).or(Err(TokenizeError::NoMatch))?;
-  code.skip_space();
-  match expect_expression(code) {
+  expect_keyword(code, "ret")?;
+  match expect_expression(code.skip_space()) {
     Ok(res) => Ok(Some(res)),
     Err(TokenizeError::NoMatch) => Ok(None),
     Err(e) => Err(e),
@@ -121,7 +120,7 @@ pub struct SetterCall {
 }
 fn expect_setter_call(code: &mut SourceCode) -> TokenizeResult<SetterCall> {
   let initial_pos = code.pos();
-  let varname = expect_identifier(code).or_else(|err| {
+  let varname = expect_ident(code).or_else(|err| {
     code.unwind(initial_pos);
     Err(err)
   })?;
@@ -171,8 +170,8 @@ pub struct Setter {
   pub pos:  source_code::Position,
 }
 fn expect_var_declaration(code: &mut SourceCode) -> TokenizeResult<Variable> {
-  seq(vec![str("let"), mul(space())])(code).or(Err(TokenizeError::NoMatch))?;
-  let (name, vartype, setter) = expect_var_spec(code)?;
+  expect_keyword(code, "let")?;
+  let (name, vartype, setter) = expect_var_spec(code.skip_space())?;
   char('=')(code.skip_space()).or(Err(TokenizeError::Expected("= <initial value>")))?;
   let initial_value = expect_expression(code.skip_space())?;
   Ok(Variable {
@@ -184,13 +183,13 @@ fn expect_var_declaration(code: &mut SourceCode) -> TokenizeResult<Variable> {
 }
 /// (variable name, type, setter)
 fn expect_var_spec(code: &mut SourceCode) -> TokenizeResult<(String, Type, Option<Setter>)> {
-  let name = expect_identifier(code)?;
+  let name = expect_ident(code)?;
   char(':')(code.skip_space()).or(Err(TokenizeError::Expected(": <type>")))?;
   code.skip_space();
   let vartype = expect_type(code)?;
   let setter = if char('|')(code.skip_space()).is_ok() {
     let pos = code.skip_space().lines_and_cols();
-    let name = expect_identifier(code).or(Err(TokenizeError::ExpectedFunction))?;
+    let name = expect_ident(code).or(Err(TokenizeError::ExpectedFunction))?;
     Some(Setter { name, pos })
   } else {
     None
@@ -213,9 +212,10 @@ pub struct Argument {
   pub setter:  Option<Setter>,
 }
 fn expect_fn_declaration(code: &mut SourceCode) -> TokenizeResult<Function> {
-  seq(vec![str("fn"), mul(space())])(code.skip_space()).or(Err(TokenizeError::NoMatch))?;
+  expect_keyword(code, "fn")?;
+  code.skip_space();
   let declared_pos = code.lines_and_cols();
-  let name = expect_identifier(code)?;
+  let name = expect_ident(code)?;
   char('(')(code.skip_space()).or(Err(TokenizeError::Expected("(<arguments>?)")))?;
   let mut args = Vec::new();
   loop {
@@ -471,7 +471,7 @@ fn expect_expression(code: &mut SourceCode) -> TokenizeResult<Expression> {
     }
 
     let use_pos = code.lines_and_cols();
-    let ident = expect_identifier(code)?;
+    let ident = expect_ident(code)?;
     // check whether <ident> is function
     let Ok(()) = char('(')(code.skip_space()) else {
       return Ok(ExprElement::Variable(ident, use_pos));
@@ -579,8 +579,8 @@ fn expect_if(code: &mut SourceCode) -> TokenizeResult<If> {
   })
 }
 
-/// consume Identifier and return (it, consumed code)
-fn expect_identifier(code: &mut SourceCode) -> TokenizeResult<String> {
+/// consume and return Ident (keyword, fn name, var name, type name)
+fn expect_ident(code: &mut SourceCode) -> TokenizeResult<String> {
   let identity = consumed(
     code,
     seq(vec![
@@ -591,10 +591,20 @@ fn expect_identifier(code: &mut SourceCode) -> TokenizeResult<String> {
   .or(Err(TokenizeError::NoMatch))?;
   Ok(identity)
 }
-
+// (Why does this function require lifetime parameter??)
+fn expect_keyword<'a>(code: &'a mut SourceCode, keyword: &'static str) -> TokenizeResult<'a, ()> {
+  let initial_pos = code.pos();
+  let res = expect_ident(code);
+  if res.is_ok_and(|res| res == keyword) {
+    Ok(())
+  } else {
+    code.unwind(initial_pos);
+    Err(TokenizeError::NoMatch)
+  }
+}
 fn expect_type(code: &mut SourceCode) -> TokenizeResult<Type> {
   let pos = code.lines_and_cols();
-  let type_ident = expect_identifier(code).or(Err(TokenizeError::ExpectedType))?;
+  let type_ident = expect_ident(code).or(Err(TokenizeError::ExpectedType))?;
   Ok(Type { type_ident, pos })
 }
 
@@ -677,8 +687,13 @@ mod test {
       };
       assert_eq!(func.name, fname.to_string());
       assert_eq!(func.args.len(), 0);
-      assert_eq!(func.code.len(), 1);
-      assert_eq!(func.code.len(), 1);
+      assert_eq!(
+        func.code.len(),
+        1,
+        "(code: '{}', parsed : {:#?})",
+        code,
+        func.code
+      );
       assert!(func.return_type.is_some());
       assert_eq!(func.return_type.unwrap().type_ident, "i32".to_string());
       let code = func.code[0].clone();
@@ -958,13 +973,13 @@ mod test {
   #[test]
   fn expect_identifier_returns_str_before_whitespace() {
     let code = "name01  name02";
-    let res = expect_identifier(&mut SourceCode::new(code));
+    let res = expect_ident(&mut SourceCode::new(code));
     assert_eq!(res.unwrap(), "name01".to_string());
   }
   #[test]
   fn expect_identifier_fails_when_code_begins_with_number() {
     let code = "0name";
-    let res = expect_identifier(&mut SourceCode::new(code));
+    let res = expect_ident(&mut SourceCode::new(code));
     assert!(res.is_err());
   }
 }

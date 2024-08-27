@@ -241,6 +241,53 @@ impl Statement {
       arg_stack,
     }))
   }
+  // FIXME: REMOVE THIS after implementing block
+  fn vec_from_limited_block(
+    token_vec: &Vec<tokenizer::Statement>,
+    parent_func: &Ref<UncompiledFunction>,
+    var_in_scope: &HashMap<String, Variable>,
+    get_accessible_fn_by_name: &AccessibleFnGetter,
+  ) -> CompileResult<Vec<Statement>> {
+    let (res, errors): (Vec<_>, Vec<_>) = token_vec
+      .iter()
+      .map(|statement| {
+        use tokenizer::StatementKind::*;
+        match &statement.kind {
+          ExprStatement(expr) => {
+            Expression::from_token(expr, parent_func, &var_in_scope, &get_accessible_fn_by_name)
+              .and_then(|expr| Ok(Statement::ExprStatement(expr, true)))
+          }
+          Return(expr) => Statement::new_return(
+            expr,
+            parent_func,
+            statement.begin,
+            statement.end,
+            &var_in_scope,
+            &get_accessible_fn_by_name,
+          ),
+          SetterCall(setter_call) => Statement::new_setter_call(
+            setter_call,
+            statement.begin,
+            &var_in_scope,
+            &get_accessible_fn_by_name,
+          ),
+          _ => Err(vec![CompileError::NotAllowedStatementInLimitedBlock(
+            statement.begin,
+            statement.end,
+          )]),
+        }
+      })
+      .partition(Result::is_ok);
+
+    errors_or(
+      errors
+        .into_iter()
+        .map(Result::unwrap_err)
+        .flatten()
+        .collect(),
+      res.into_iter().map(Result::unwrap).collect(),
+    )
+  }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -445,31 +492,6 @@ impl Expression {
         }
       }
       IfExpr(if_expr) => 'if_expr: {
-        let map_statement_in_if = |statement: &tokenizer::Statement| {
-          use tokenizer::StatementKind::*;
-          match &statement.kind {
-            ExprStatement(expr) => {
-              Expression::from_token(expr, parent_func, &var_in_scope, &get_accessible_fn_by_name)
-                .and_then(|expr| Ok(Statement::ExprStatement(expr, true)))
-            }
-            Return(expr) => Statement::new_return(
-              expr,
-              parent_func,
-              statement.begin,
-              statement.end,
-              &var_in_scope,
-              &get_accessible_fn_by_name,
-            ),
-            SetterCall(setter_call) => Statement::new_setter_call(
-              setter_call,
-              statement.begin,
-              &var_in_scope,
-              &get_accessible_fn_by_name,
-            ),
-            _ => Err(vec![CompileError::NotAllowedStatementInIf(statement.begin)]),
-          }
-        };
-
         let cond = match Expression::from_token(
           &if_expr.cond,
           parent_func,
@@ -482,15 +504,18 @@ impl Expression {
             break 'if_expr;
           }
         };
-        let (then, err): (Vec<_>, Vec<_>) = if_expr
-          .then
-          .iter()
-          .map(map_statement_in_if)
-          .partition(Result::is_ok);
-        err
-          .into_iter()
-          .for_each(|e| errors.append(&mut e.unwrap_err()));
-        let mut then: Vec<Statement> = then.into_iter().map(Result::unwrap).collect();
+        let mut then = match Statement::vec_from_limited_block(
+          &if_expr.then,
+          parent_func,
+          var_in_scope,
+          get_accessible_fn_by_name,
+        ) {
+          Ok(res) => res,
+          Err(mut e) => {
+            errors.append(&mut e);
+            Vec::new()
+          }
+        };
         // if last statement of block is Expression, it is return value
         let mut then_result_type = Type::Void;
         if let Some(last) = then.last_mut() {
@@ -503,15 +528,18 @@ impl Expression {
         // if 'if' has 'else', check its return value
         let mut otherwise_result_type = Type::Void;
         let otherwise = if_expr.otherwise.as_ref().and_then(|otherwise| {
-          let (otherwise, err): (Vec<_>, Vec<_>) = otherwise
-            .iter()
-            .map(map_statement_in_if)
-            .partition(Result::is_ok);
-          err
-            .into_iter()
-            .for_each(|e| errors.append(&mut e.unwrap_err()));
-          let mut otherwise: Vec<Statement> = otherwise.into_iter().map(Result::unwrap).collect();
-          // if last statement of block is Expression, it is return value
+          let mut otherwise = match Statement::vec_from_limited_block(
+            &otherwise,
+            parent_func,
+            var_in_scope,
+            get_accessible_fn_by_name,
+          ) {
+            Ok(res) => res,
+            Err(mut e) => {
+              errors.append(&mut e);
+              return None;
+            }
+          };
           if let Some(last) = otherwise.last_mut() {
             if let Statement::ExprStatement(expr, _) = last {
               otherwise_result_type = expr.result_type.clone();
@@ -735,7 +763,7 @@ impl Function {
     };
     let mut var_in_scope: HashMap<String, Variable> = HashMap::new();
     for (i, arg) in uncompiled.args.iter().enumerate() {
-      if let Some(err) = func.add_variable(
+      if let Err(err) = func.add_variable(
         arg.name.clone(),
         arg.vartype.clone(),
         &arg.setter,
@@ -780,7 +808,7 @@ impl Function {
               vartype.clone(),
             ));
           }
-          if let Some(err) = func.add_variable(
+          if let Err(err) = func.add_variable(
             var.name.clone(),
             vartype,
             &var.setter,
@@ -841,9 +869,10 @@ impl Function {
     initial_value: Expression,
     uncompiled: &Ref<UncompiledFunction>,
     var_in_scope: &mut HashMap<String, Variable>,
-  ) -> Option<CompileError> {
+  ) -> Result<usize, CompileError> {
+    let idx = self.variables.len();
     let mut var = Variable {
-      idx: self.variables.len(),
+      idx,
       vartype: vartype.clone(),
       setter: None, // temporally
       initial_value,
@@ -877,7 +906,7 @@ impl Function {
     var_in_scope.insert(name, var.clone());
     self.variables.push(var);
 
-    retval
+    retval.map_or(Ok(idx), Result::Err)
   }
 }
 

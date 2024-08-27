@@ -14,7 +14,7 @@ pub enum TokenizeError {
   Expected(&'static str),
   ExpectedType,
   ExpectedFunction,
-  InvalidNumber,
+  InvalidNumber(String),
   UnclosedDelimiter,
 }
 impl TokenizeError {
@@ -68,7 +68,7 @@ pub enum CompileError {
     source_code::Position,
   ),
   TryMutateImmutableVar(String, source_code::Position),
-  NotAllowedStatementInIf(source_code::Position),
+  NotAllowedStatementInLimitedBlock(source_code::Position,source_code::Position),
   GlobalStatementWithMain(Vec<usize>),
 }
 impl CompileError {
@@ -147,10 +147,10 @@ impl CompileError {
           varname,
           code.pointed_string(pos)
         ),
-        NotAllowedStatementInIf(pos)=> format!(
-          "[error] {} -> this statement is not allowed in if expression\n{}",
-          pos,
-          code.pointed_string(pos)
+        NotAllowedStatementInLimitedBlock(begin,end)=> format!(
+          "[error] {} -> this statement is not allowed in if/for block\n{}",
+          begin,
+          code.ranged_string(begin, end)
         ),
         GlobalStatementWithMain(lines) => {
           let lines = lines

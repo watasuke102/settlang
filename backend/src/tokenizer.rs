@@ -464,12 +464,6 @@ fn expect_expression(code: &mut SourceCode) -> TokenizeResult<Expression> {
       Err(e) => return Err(e),
     }
 
-    if seq(vec![str("true"), mul(space())])(code).is_ok() {
-      return Ok(ExprElement::Constant(1));
-    }
-    if seq(vec![str("false"), mul(space())])(code).is_ok() {
-      return Ok(ExprElement::Constant(0));
-    }
     match expect_constant(code) {
       Ok(res) => return Ok(ExprElement::Constant(res)),
       Err(TokenizeError::NoMatch) => (),
@@ -501,6 +495,14 @@ fn expect_expression(code: &mut SourceCode) -> TokenizeResult<Expression> {
     return Ok(ExprElement::FnCall(ident, args, use_pos));
 
     fn expect_constant(code: &mut SourceCode) -> TokenizeResult<i32> {
+      // boolean literal
+      if seq(vec![str("true"), mul(space())])(code).is_ok() {
+        return Ok(1);
+      }
+      if seq(vec![str("false"), mul(space())])(code).is_ok() {
+        return Ok(0);
+      }
+      // numeric literal
       let mut sign = 1;
       if let Ok(()) = char('+')(code) {
       } else if let Ok(()) = char('-')(code) {
@@ -509,7 +511,9 @@ fn expect_expression(code: &mut SourceCode) -> TokenizeResult<Expression> {
       let Ok(constant) = consumed(code, mul(num())) else {
         return Err(TokenizeError::NoMatch);
       };
-      let constant: i32 = constant.parse().or(Err(TokenizeError::InvalidNumber))?;
+      let constant = constant
+        .parse::<i32>()
+        .or_else(|e| Err(TokenizeError::InvalidNumber(e.to_string())))?;
       Ok(constant * sign)
     }
   }
@@ -689,7 +693,7 @@ mod test {
     }
   }
   #[test]
-  fn expect_fn_for_arguments() {
+  fn expect_fn_arguments() {
     for (code, expected_arg_names) in [
       ("fn single(a: i32) {}", vec!["a"]),
       (

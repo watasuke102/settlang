@@ -1,5 +1,5 @@
 use std::{
-  cell::{Ref, RefCell},
+  cell::{OnceCell, Ref, RefCell},
   collections::{HashMap, VecDeque},
   fmt,
   ops::Deref,
@@ -14,6 +14,22 @@ fn errors_or<T>(errors: Vec<CompileError>, res: T) -> CompileResult<T> {
     Ok(res)
   } else {
     Err(errors)
+  }
+}
+fn i64_to_i32(
+  imm: i64,
+  begin: source_code::Position,
+  end: source_code::Position,
+) -> CompileResult<i32> {
+  match imm.try_into() {
+    Ok(res) => Ok(res),
+    Err(e) => Err(vec![CompileError::FailedToCastImm(
+      imm.to_string(),
+      Type::I32,
+      e.to_string(),
+      begin,
+      end,
+    )]),
   }
 }
 
@@ -184,7 +200,7 @@ impl Statement {
     var_in_scope: &HashMap<String, Variable>,
     get_accessible_fn_by_name: &AccessibleFnGetter,
   ) -> CompileResult<Self> {
-    let retval = match expr {
+    let mut retval = match expr {
       Some(expr) => {
         Expression::from_token(expr, parent_func, &var_in_scope, &get_accessible_fn_by_name)?
       }
@@ -193,15 +209,20 @@ impl Statement {
         result_type: Type::Void,
       },
     };
-    if parent_func.return_type != retval.result_type {
-      return Err(vec![CompileError::MismatchReturnExprType(
+    if parent_func.return_type == retval.result_type {
+      return Ok(Statement::Return(retval));
+    }
+
+    match retval.try_cast(&parent_func.return_type, statement_begin, statement_end) {
+      Ok(_) => Ok(Statement::Return(retval)),
+      Err(Some(err)) => Err(err),
+      _ => Err(vec![CompileError::MismatchReturnExprType(
         parent_func.return_type.clone(),
         retval.result_type,
         statement_begin,
         statement_end,
-      )]);
+      )]),
     }
-    Ok(Statement::Return(retval))
   }
   fn new_setter_call(
     setter_call: &tokenizer::SetterCall,
@@ -304,7 +325,8 @@ pub enum ExprCommand {
   BitOr,
   BitAnd,
   IfExpr(If),
-  PushImm(i32),
+  ImmI32(i32),
+  ImmI64(i64),
   PushVar(usize),
   FnCall(usize),
   CastI32ToI64,
@@ -333,43 +355,91 @@ pub struct Expression {
   pub result_type: Type,
 }
 impl Expression {
+  /// if Expression is immediate, replace and return Ok
+  /// return Err(None) if Expression is not Immediate or cannot cast
+  /// return Err(Some) if errors are occured in casting
+  fn try_cast(
+    &mut self,
+    target: &Type,
+    statement_begin: source_code::Position,
+    statement_end: source_code::Position,
+  ) -> Result<(), Option<Vec<CompileError>>> {
+    if self.expr_stack.len() != 1 {
+      return Err(None);
+    }
+    if let ExprCommand::ImmI64(imm) = self.expr_stack[0] &&
+      *target == Type::I32
+    {
+      let imm = i64_to_i32(imm, statement_begin, statement_end).map_err(Option::Some)?;
+      self.expr_stack[0] = ExprCommand::ImmI32(imm);
+      self.result_type = Type::I32;
+      return Ok(());
+    }
+    Err(None)
+  }
   fn from_token(
     token: &tokenizer::Expression,
     parent_func: &Ref<UncompiledFunction>,
     var_in_scope: &HashMap<String, Variable>,
     get_accessible_fn_by_name: &AccessibleFnGetter,
   ) -> CompileResult<Self> {
+    if let Ok(imm) = token.element._eval() {
+      return Ok(Expression {
+        expr_stack:  vec![ExprCommand::ImmI64(imm)],
+        result_type: Type::I64,
+      });
+    }
+
     let mut expr_stack = Vec::new();
     let mut errors = Vec::new();
-    let mut result_type = Type::I32;
+    let mut result_type: OnceCell<Type> = OnceCell::new();
 
     // convert lhs and rhs (both are token), push them if no errors occured
-    let mut extract =
-      |lhs: &tokenizer::ExprElement, rhs: &tokenizer::ExprElement, push_if_succeed: ExprCommand| {
-        let lhs = Expression::from_token(
-          &token.replaced(lhs.clone()),
-          parent_func,
-          var_in_scope,
-          get_accessible_fn_by_name,
-        )
-        .or_else(|mut res| {
-          errors.append(&mut res);
-          Err(())
-        });
-        let rhs = Expression::from_token(
-          &token.replaced(rhs.clone()),
-          parent_func,
-          var_in_scope,
-          get_accessible_fn_by_name,
-        )
-        .or_else(|mut res| {
-          errors.append(&mut res);
-          Err(())
-        });
-        let (Ok(mut lhs), Ok(mut rhs)) = (lhs, rhs) else {
-          return;
-        };
-        if lhs.result_type != rhs.result_type {
+    let mut extract = |lhs_token: &tokenizer::ExprElement,
+                       rhs_token: &tokenizer::ExprElement,
+                       push_if_succeed: ExprCommand| {
+      let lhs = Expression::from_token(
+        &token.replaced(lhs_token.clone()),
+        parent_func,
+        var_in_scope,
+        get_accessible_fn_by_name,
+      )
+      .or_else(|mut res| {
+        errors.append(&mut res);
+        Err(())
+      });
+      let rhs = Expression::from_token(
+        &token.replaced(rhs_token.clone()),
+        parent_func,
+        var_in_scope,
+        get_accessible_fn_by_name,
+      )
+      .or_else(|mut res| {
+        errors.append(&mut res);
+        Err(())
+      });
+      let (Ok(mut lhs), Ok(mut rhs)) = (lhs, rhs) else {
+        return;
+      };
+      // if the type is different, try casting
+      if lhs.result_type != rhs.result_type {
+        'try_cast: {
+          match lhs.try_cast(&rhs.result_type, token.begin, token.end) {
+            Ok(_) => break 'try_cast,
+            Err(Some(mut err)) => {
+              errors.append(&mut err);
+              return;
+            }
+            Err(_) => (),
+          }
+          match rhs.try_cast(&lhs.result_type, token.begin, token.end) {
+            Ok(_) => break 'try_cast,
+            Err(Some(mut err)) => {
+              errors.append(&mut err);
+              return;
+            }
+            Err(_) => (),
+          }
           errors.push(CompileError::MismatchBinopType(
             lhs.result_type.clone(),
             rhs.result_type.clone(),
@@ -378,36 +448,38 @@ impl Expression {
           ));
           return;
         }
-        // append lhs and rhs to expr stack
-        {
-          use ExprCommand::*;
-          match push_if_succeed {
-            // logic and/or is special; no equivalent instructions in WASM
-            LogicAnd | LogicOr => {
-              expr_stack.append(&mut lhs.expr_stack);
-              // cast lhs to bool (lhs != 0)
-              expr_stack.push(ExprCommand::PushImm(0));
-              expr_stack.push(ExprCommand::NonEq);
-              // cast rhs to bool (lhs != 0)
-              expr_stack.append(&mut rhs.expr_stack);
-              expr_stack.push(ExprCommand::PushImm(0));
-              expr_stack.push(ExprCommand::NonEq);
-              // bool(rhs) 'and/or' bool(lhs)
-              expr_stack.push(match push_if_succeed {
-                LogicAnd => BitAnd,
-                LogicOr => BitOr,
-                _ => unreachable!(),
-              });
-            }
-            // otherwise push normally
-            _ => {
-              expr_stack.append(&mut lhs.expr_stack);
-              expr_stack.append(&mut rhs.expr_stack);
-              expr_stack.push(push_if_succeed);
-            }
+      }
+      // append lhs and rhs to expr stack
+      {
+        use ExprCommand::*;
+        match push_if_succeed {
+          // logic and/or is special; no equivalent instructions in WASM
+          LogicAnd | LogicOr => {
+            expr_stack.append(&mut lhs.expr_stack);
+            // cast lhs to bool (lhs != 0)
+            expr_stack.push(ExprCommand::ImmI64(0));
+            expr_stack.push(ExprCommand::NonEq);
+            // cast rhs to bool (lhs != 0)
+            expr_stack.append(&mut rhs.expr_stack);
+            expr_stack.push(ExprCommand::ImmI64(0));
+            expr_stack.push(ExprCommand::NonEq);
+            // bool(rhs) 'and/or' bool(lhs)
+            expr_stack.push(match push_if_succeed {
+              LogicAnd => BitAnd,
+              LogicOr => BitOr,
+              _ => unreachable!(),
+            });
+          }
+          // otherwise push normally
+          _ => {
+            expr_stack.append(&mut lhs.expr_stack);
+            expr_stack.append(&mut rhs.expr_stack);
+            expr_stack.push(push_if_succeed);
           }
         }
-      };
+      }
+      result_type.get_mut_or_init(|| lhs.result_type.clone());
+    };
 
     use tokenizer::ExprElement::*;
     match &token.element {
@@ -425,14 +497,18 @@ impl Expression {
       LogicAnd(lhs, rhs) => extract(lhs.deref(), rhs.deref(), ExprCommand::LogicAnd),
       LogicOr(lhs, rhs) => extract(lhs.deref(), rhs.deref(), ExprCommand::LogicOr),
 
-      Constant(v) => {
-        result_type = Type::I32;
-        expr_stack.push(ExprCommand::PushImm(*v));
-      }
+      Int(imm) => match result_type.get_or_init(|| Type::I64) {
+        Type::I32 => match i64_to_i32(*imm, token.begin, token.end) {
+          Ok(imm) => expr_stack.push(ExprCommand::ImmI32(imm)),
+          Err(mut e) => errors.append(&mut e),
+        },
+        Type::I64 => expr_stack.push(ExprCommand::ImmI64(*imm)),
+        _ => panic!("Fail imm : {:?}", token), // FIXME: when this happen?
+      },
       Variable(var_name, pos) => match var_in_scope.get(var_name) {
         Some(var) => {
           expr_stack.push(ExprCommand::PushVar(var.idx));
-          result_type = var.vartype.clone();
+          result_type.get_or_init(|| var.vartype.clone());
         }
         None => errors.push(CompileError::UndefinedVariable(var_name.clone(), *pos)),
       },
@@ -469,8 +545,8 @@ impl Expression {
           };
           expr.expr_stack.push(cast_command);
         }
-        result_type = to_type;
         expr_stack.append(&mut expr.expr_stack);
+        *result_type.get_mut_or_init(|| to_type.clone()) = to_type.clone();
       }
       FnCall(fn_name, arguments, pos) => 'fn_call: {
         let Some(called_fn) = get_accessible_fn_by_name(fn_name) else {
@@ -496,7 +572,7 @@ impl Expression {
           Ok(mut expr) => {
             expr_stack.append(&mut expr);
             expr_stack.push(ExprCommand::FnCall(called_fn.idx));
-            result_type = called_fn.return_type.clone();
+            result_type.get_or_init(|| called_fn.return_type.clone());
           }
           Err(mut e) => errors.append(&mut e),
         }
@@ -567,7 +643,7 @@ impl Expression {
             otherwise,
             result_type: then_result_type.clone(),
           }));
-          result_type = then_result_type;
+          result_type.get_or_init(|| then_result_type);
         } else {
           errors.push(CompileError::MismatchIfLastExpr(
             then_result_type.clone(),
@@ -583,7 +659,7 @@ impl Expression {
       errors,
       Expression {
         expr_stack,
-        result_type,
+        result_type: result_type.get().unwrap_or(&Type::Void).clone(),
       },
     )
   }
@@ -597,23 +673,28 @@ fn exprcomand_from_token_vec(
   let mut errors = Vec::new();
   let mut arguments_expr = Vec::new();
   for (i, arg_expr) in token_vec.iter().enumerate() {
-    match Expression::from_token(arg_expr, callee, var_in_scope, get_accessible_fn_by_name) {
-      Ok(mut expr) => {
-        if expr.result_type == callee.args[i].vartype {
-          arguments_expr.append(&mut expr.expr_stack);
-        } else {
-          errors.push(CompileError::MismatchFnArgType(
-            i,
-            callee.name.clone(),
-            callee.args[i].vartype.clone(),
-            expr.result_type.clone(),
-            arg_expr.begin,
-            arg_expr.end,
-          ));
+    let mut expr =
+      match Expression::from_token(arg_expr, callee, var_in_scope, get_accessible_fn_by_name) {
+        Ok(res) => res,
+        Err(mut err) => {
+          errors.append(&mut err);
+          continue;
         }
-      }
-      Err(mut err) => {
-        errors.append(&mut err);
+      };
+    if expr.result_type == callee.args[i].vartype {
+      arguments_expr.append(&mut expr.expr_stack);
+    } else {
+      match expr.try_cast(&callee.args[i].vartype, arg_expr.begin, arg_expr.end) {
+        Ok(_) => arguments_expr.append(&mut expr.expr_stack),
+        Err(Some(mut err)) => errors.append(&mut err),
+        Err(None) => errors.push(CompileError::MismatchFnArgType(
+          i,
+          callee.name.clone(),
+          callee.args[i].vartype.clone(),
+          expr.result_type.clone(),
+          arg_expr.begin,
+          arg_expr.end,
+        )),
       }
     }
   }
@@ -804,7 +885,7 @@ impl Function {
               continue;
             }
           };
-          let initial_value = match Expression::from_token(
+          let mut initial_value = match Expression::from_token(
             &var.initial_value,
             &uncompiled,
             &var_in_scope,
@@ -817,13 +898,17 @@ impl Function {
             }
           };
           if initial_value.result_type != vartype {
-            errors.push(CompileError::MismatchVarInitType(
-              var.name.clone(),
-              vartype.clone(),
-              initial_value.result_type.clone(),
-              statement.begin,
-              statement.end,
-            ));
+            match initial_value.try_cast(&vartype, statement.begin, statement.end) {
+              Ok(_) => (),
+              Err(Some(mut err)) => errors.append(&mut err),
+              Err(None) => errors.push(CompileError::MismatchVarInitType(
+                var.name.clone(),
+                vartype.clone(),
+                initial_value.result_type.clone(),
+                statement.begin,
+                statement.end,
+              )),
+            }
           }
           match func.add_variable(
             var.name.clone(),
@@ -888,10 +973,6 @@ impl Function {
               break 'for_loop;
             }
           };
-          if for_loop.inclusive {
-            end.expr_stack.push(ExprCommand::PushImm(1));
-            end.expr_stack.push(ExprCommand::Add);
-          }
           // both begin and end should be same and integer
           if begin.result_type != end.result_type {
             errors.push(CompileError::MismatchForRangeType(
@@ -902,7 +983,17 @@ impl Function {
             ));
             break 'for_loop;
           }
-          if end.result_type != Type::I32 && end.result_type != Type::I64 {
+          if end.result_type == Type::I32 {
+            if for_loop.inclusive {
+              end.expr_stack.push(ExprCommand::ImmI32(1));
+              end.expr_stack.push(ExprCommand::Add);
+            }
+          } else if end.result_type == Type::I64 {
+            if for_loop.inclusive {
+              end.expr_stack.push(ExprCommand::ImmI64(1));
+              end.expr_stack.push(ExprCommand::Add);
+            }
+          } else {
             errors.push(CompileError::WrongForRangeType(
               end.result_type.clone(),
               for_loop.begin.begin,
@@ -1053,8 +1144,8 @@ mod test {
       assert_eq!(name, "f");
       Some(func.clone())
     });
-    let eval_expr = |expr: &Expression| -> Option<i32> {
-      let mut stack: Vec<i32> = Vec::new();
+    let eval_expr = |expr: &Expression| -> Option<i64> {
+      let mut stack: Vec<i64> = Vec::new();
       for command in expr.expr_stack.iter() {
         use ExprCommand::*;
         match command {
@@ -1078,7 +1169,8 @@ mod test {
             let rhs = stack.pop().unwrap();
             stack.push(lhs / rhs);
           }
-          PushImm(v) => stack.push(*v),
+          ImmI32(v) => stack.push(*v as i64),
+          ImmI64(v) => stack.push(*v),
           PushVar(idx) => {
             assert_eq!(*idx, 0);
             stack.push(10);
@@ -1098,8 +1190,8 @@ mod test {
         // 2 * (4+6) = 20
         (
           Mul(
-            Box::new(Constant(2)),
-            Box::new(Add(Box::new(Constant(4)), Box::new(Constant(6)))),
+            Box::new(Int(2)),
+            Box::new(Add(Box::new(Int(4)), Box::new(Int(6)))),
           ),
           Some(20),
         ),
@@ -1123,7 +1215,12 @@ mod test {
           &var_in_scope,
           &fn_getter,
         )
-        .unwrap_or_else(|_| panic!("Expr is expected to succeed: {:?}", element));
+        .unwrap_or_else(|err| {
+          panic!(
+            "Expr is expected to succeed: expr={:?}, err={:?}",
+            element, err
+          )
+        });
         assert_eq!(eval_expr(&expr), expect);
       }
       // test that is expected to fail
@@ -1139,11 +1236,11 @@ mod test {
               Vec::new(),
               source_code::Position::default(),
             )),
-            Box::new(Constant(1)),
+            Box::new(Int(1)),
           ),
           CompileError::MismatchBinopType(
             Type::Void,
-            Type::I32,
+            Type::I64,
             source_code::Position::default(),
             source_code::Position::default(),
           ),

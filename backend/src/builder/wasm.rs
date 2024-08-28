@@ -198,8 +198,12 @@ fn assemble_expr(commands: &Vec<compile::ExprCommand>) -> Result<Vec<u8>, String
         }
         res.push(End as u8);
       }
-      PushImm(imm) => {
+      ImmI32(imm) => {
         res.push(ConstI32 as u8);
+        res.append(&mut to_signed_leb128(*imm as i64))
+      }
+      ImmI64(imm) => {
+        res.push(ConstI64 as u8);
         res.append(&mut to_signed_leb128(*imm as i64))
       }
       PushVar(idx) => {

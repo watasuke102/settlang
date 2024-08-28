@@ -104,6 +104,14 @@ pub enum CompileError {
     source_code::Position,
     source_code::Position,
   ),
+  // immediate value, target type, error msg, begin, end
+  FailedToCastImm(
+    String,
+    compile::Type,
+    String,
+    source_code::Position,
+    source_code::Position
+  ),
   TryMutateImmutableVar(String, source_code::Position),
   NotAllowedStatementInLimitedBlock(source_code::Position,source_code::Position),
   GlobalStatementWithMain(Vec<usize>),
@@ -195,13 +203,6 @@ impl CompileError {
           setter_retval_type,
           code.pointed_string(pos)
         ),
-        MismatchReturnExprType(expect, actual, begin, end) => format!(
-          "[error] {} -> mismatched type; function return type is {:?} but return value is {:?}\n{}",
-          begin,
-          expect,
-          actual,
-          code.ranged_string(begin, end)
-        ),
         MismatchIfLastExpr(then_type, otherwise_type, begin, end) => format!(
           "[error] {} -> last expression type of 'if' is different; if {{ {:?} }} else {{ {:?} }}\n{}",
           begin,
@@ -221,6 +222,13 @@ impl CompileError {
           begin_pos,
           range_type,
           code.ranged_string(begin_pos, end_pos)
+        ),
+        FailedToCastImm(tried_imm, target_type, err, begin, end) => format!(
+          "[error] {} -> failed to cast {} to {:?} ({})\n{}",
+          begin,
+          tried_imm,target_type,
+          err,
+          code.ranged_string(begin, end)
         ),
         TryMutateImmutableVar(varname, pos) => format!(
           "[error] {} -> try to mutate the variable '{}' but it is immutable (does not have setter)\n{}",

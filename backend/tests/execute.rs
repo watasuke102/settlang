@@ -11,20 +11,22 @@ fn build_and_execute(name: &str, code: &str, expect: i64) {
     .unwrap_or_else(|e| panic!("failed to build '{}'\n{}", name, e));
   // prepare wasmer
   let mut store = wasmer::Store::default();
-  let module = wasmer::Module::from_binary(&store, &wasm[0..]).unwrap();
+  let module = wasmer::Module::from_binary(&store, &wasm[0..])
+    .unwrap_or_else(|e| panic!("failed to build '{}'\n{}", name, e));
   let import_object = imports! {};
-  let instance = wasmer::Instance::new(&mut store, &module, &import_object).unwrap();
+  let instance = wasmer::Instance::new(&mut store, &module, &import_object)
+    .unwrap_or_else(|e| panic!("failed to build '{}'\n{}", name, e));
   // execute
   let result = instance
     .exports
     .get_function("main")
-    .unwrap()
+    .unwrap_or_else(|e| panic!("failed to build '{}'\n{}", name, e))
     .call(&mut store, &[])
-    .unwrap();
+    .unwrap_or_else(|e| panic!("failed to build '{}'\n{}", name, e));
   let result = result[0]
     .i32()
     .map_or_else(|| result[0].i64(), |res| Some(res as i64))
-    .unwrap();
+    .unwrap_or_else(|| panic!("failed to build '{}'\nResult is None", name));
   assert_eq!(result, expect, "(test name: '{}')", name);
 }
 

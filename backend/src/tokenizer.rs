@@ -333,7 +333,7 @@ impl PartialEq for Expression {
 }
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExprElement {
-  Constant(i32),
+  Int(i64),
   Variable(String, source_code::Position),
   Cast(Type, Box<ExprElement>),
   FnCall(String, Vec<Expression>, source_code::Position),
@@ -355,23 +355,23 @@ pub enum ExprElement {
 }
 impl ExprElement {
   // this function is used for test so basically raise warning (unused function)
-  pub fn _eval(&self) -> Result<i32, ()> {
+  pub fn _eval(&self) -> Result<i64, ()> {
     use self::ExprElement::*;
     match self {
-      Constant(a) => Ok(*a),
+      Int(a) => Ok(*a),
       Add(lhs, rhs) => Ok(lhs._eval()? + rhs._eval()?),
       Sub(lhs, rhs) => Ok(lhs._eval()? - rhs._eval()?),
       Mul(lhs, rhs) => Ok(lhs._eval()? * rhs._eval()?),
       Div(lhs, rhs) => Ok(lhs._eval()? / rhs._eval()?),
       Mod(lhs, rhs) => Ok(lhs._eval()? % rhs._eval()?),
-      Eq(lhs, rhs) => Ok((lhs._eval()? == rhs._eval()?) as i32),
-      NonEq(lhs, rhs) => Ok((lhs._eval()? != rhs._eval()?) as i32),
-      Less(lhs, rhs) => Ok((lhs._eval()? < rhs._eval()?) as i32),
-      LessEq(lhs, rhs) => Ok((lhs._eval()? <= rhs._eval()?) as i32),
-      Greater(lhs, rhs) => Ok((lhs._eval()? > rhs._eval()?) as i32),
-      GreaterEq(lhs, rhs) => Ok((lhs._eval()? >= rhs._eval()?) as i32),
-      LogicAnd(lhs, rhs) => Ok(((lhs._eval()? != 0) && (rhs._eval()? != 0)) as i32),
-      LogicOr(lhs, rhs) => Ok(((lhs._eval()? != 0) || (rhs._eval()? != 0)) as i32),
+      Eq(lhs, rhs) => Ok((lhs._eval()? == rhs._eval()?) as i64),
+      NonEq(lhs, rhs) => Ok((lhs._eval()? != rhs._eval()?) as i64),
+      Less(lhs, rhs) => Ok((lhs._eval()? < rhs._eval()?) as i64),
+      LessEq(lhs, rhs) => Ok((lhs._eval()? <= rhs._eval()?) as i64),
+      Greater(lhs, rhs) => Ok((lhs._eval()? > rhs._eval()?) as i64),
+      GreaterEq(lhs, rhs) => Ok((lhs._eval()? >= rhs._eval()?) as i64),
+      LogicAnd(lhs, rhs) => Ok(((lhs._eval()? != 0) && (rhs._eval()? != 0)) as i64),
+      LogicOr(lhs, rhs) => Ok(((lhs._eval()? != 0) || (rhs._eval()? != 0)) as i64),
       Cast(_, expr) => Ok(expr._eval()?),
       _ => Err(()),
     }
@@ -518,7 +518,6 @@ fn expect_expression(code: &mut SourceCode) -> TokenizeResult<Expression> {
       }
       return Ok(expr.element);
     }
-
     match expect_if(code) {
       Ok(res) => return Ok(ExprElement::IfExpr(Box::new(res))),
       Err(TokenizeError::NoMatch) => (),
@@ -526,7 +525,7 @@ fn expect_expression(code: &mut SourceCode) -> TokenizeResult<Expression> {
     }
 
     match expect_constant(code) {
-      Ok(res) => return Ok(ExprElement::Constant(res)),
+      Ok(res) => return Ok(res),
       Err(TokenizeError::NoMatch) => (),
       Err(e) => return Err(e),
     }
@@ -555,13 +554,13 @@ fn expect_expression(code: &mut SourceCode) -> TokenizeResult<Expression> {
 
     return Ok(ExprElement::FnCall(ident, args, use_pos));
 
-    fn expect_constant(code: &mut SourceCode) -> TokenizeResult<i32> {
+    fn expect_constant(code: &mut SourceCode) -> TokenizeResult<ExprElement> {
       // boolean literal
-      if seq(vec![str("true"), mul(space())])(code).is_ok() {
-        return Ok(1);
+      if expect_keyword(code, "false").is_ok() {
+        return Ok(ExprElement::Int(0));
       }
-      if seq(vec![str("false"), mul(space())])(code).is_ok() {
-        return Ok(0);
+      if expect_keyword(code, "true").is_ok() {
+        return Ok(ExprElement::Int(1));
       }
       // numeric literal
       let mut sign = 1;
@@ -573,9 +572,9 @@ fn expect_expression(code: &mut SourceCode) -> TokenizeResult<Expression> {
         return Err(TokenizeError::NoMatch);
       };
       let constant = constant
-        .parse::<i32>()
+        .parse::<i64>()
         .or_else(|e| Err(TokenizeError::InvalidNumber(e.to_string())))?;
-      Ok(constant * sign)
+      Ok(ExprElement::Int(constant * sign))
     }
   }
 }
@@ -762,7 +761,7 @@ mod test {
         panic!("Statement is wrong; expect: Return, actual: {:?}", code);
       };
       let expr = expr.expect("No return value expression");
-      let ExprElement::Constant(parsed_retval) = expr.element else {
+      let ExprElement::Int(parsed_retval) = expr.element else {
         panic!("Expression is wrong; expect: Constant, actual: {:?}", expr);
       };
       assert_eq!(parsed_retval, retval);
@@ -849,7 +848,7 @@ mod test {
         }
       };
       let expr = expr.expect("No return value expression");
-      let ExprElement::Constant(parsed_retval) = expr.element else {
+      let ExprElement::Int(parsed_retval) = expr.element else {
         panic!("Expression is wrong; expect: Constant, actual: {:?}", expr);
       };
       assert_eq!(parsed_retval, retval);

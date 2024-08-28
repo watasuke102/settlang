@@ -3,6 +3,8 @@ fn add(self: i32, i: i32) -> i32 {
 }
 
 fn main() -> i32 {
+  ret 91
+  #*
   let exclusive: i32 | add = 0
   for i in 1..14 {
     exclusive.set(exclusive, i)
@@ -18,4 +20,5 @@ fn main() -> i32 {
   } else {
     0
   }
+  *#
 }

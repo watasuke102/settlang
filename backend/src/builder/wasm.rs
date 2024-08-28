@@ -213,12 +213,12 @@ fn assemble_expr(commands: &Vec<compile::expression::ExprCommand>) -> Result<Vec
       PushVar(idx, vartype) => {
         res.push(LocalGet as u8);
         res.append(&mut to_signed_leb128(*idx as i64));
-        current_type = vartype.clone();
+        current_type = *vartype;
       }
       FnCall(idx, return_type) => {
         res.push(Call as u8);
         res.append(&mut to_signed_leb128(*idx as i64));
-        current_type = return_type.clone();
+        current_type = *return_type;
       }
       CastI32ToI64 => {
         res.push(ExtendSignedI32ToI64 as u8);

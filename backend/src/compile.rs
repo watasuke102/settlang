@@ -41,7 +41,7 @@ pub struct Program {
   pub functions: Vec<Function>,
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum Type {
   Void,
   #[default]
@@ -220,7 +220,7 @@ impl Statement {
       Ok(_) => Ok(Statement::Return(retval)),
       Err(Some(err)) => Err(err),
       _ => Err(vec![CompileError::MismatchReturnExprType(
-        parent_func.return_type.clone(),
+        parent_func.return_type,
         retval.result_type,
         statement_begin,
         statement_end,
@@ -458,19 +458,15 @@ impl Function {
     let mut func = Function {
       idx: uncompiled.idx,
       name: uncompiled.name.clone(),
-      args: uncompiled
-        .args
-        .iter()
-        .map(|arg| arg.vartype.clone())
-        .collect(),
-      return_type: uncompiled.return_type.clone(),
+      args: uncompiled.args.iter().map(|arg| arg.vartype).collect(),
+      return_type: uncompiled.return_type,
       ..Function::default()
     };
     let mut var_in_scope: HashMap<String, Variable> = HashMap::new();
     for arg in uncompiled.args.iter() {
       if let Err(err) = func.add_variable(
         arg.name.clone(),
-        arg.vartype.clone(),
+        arg.vartype,
         &arg.setter,
         &uncompiled,
         &mut var_in_scope,
@@ -512,8 +508,8 @@ impl Function {
               Err(Some(mut err)) => errors.append(&mut err),
               Err(None) => errors.push(CompileError::MismatchVarInitType(
                 var.name.clone(),
-                vartype.clone(),
-                initial_value.result_type.clone(),
+                vartype,
+                initial_value.result_type,
                 statement.begin,
                 statement.end,
               )),
@@ -585,8 +581,8 @@ impl Function {
           // both begin and end should be same and integer
           if begin.result_type != end.result_type {
             errors.push(CompileError::MismatchForRangeType(
-              begin.result_type.clone(),
-              end.result_type.clone(),
+              begin.result_type,
+              end.result_type,
               for_loop.begin.begin,
               for_loop.end.end,
             ));
@@ -604,7 +600,7 @@ impl Function {
             }
           } else {
             errors.push(CompileError::WrongForRangeType(
-              end.result_type.clone(),
+              end.result_type,
               for_loop.begin.begin,
               for_loop.end.end,
             ));
@@ -616,7 +612,7 @@ impl Function {
           let cnt_var_idx = func
             .add_variable(
               for_loop.varname.clone(),
-              begin.result_type.clone(),
+              begin.result_type,
               &None,
               &uncompiled,
               &mut var_in_scope,
@@ -658,7 +654,7 @@ impl Function {
     {
       errors.push(CompileError::ReturnNotFound(
         func.name.clone(),
-        func.return_type.clone(),
+        func.return_type,
       ));
     }
 
@@ -675,7 +671,7 @@ impl Function {
     let idx = self.variables.len();
     let mut var = Variable {
       idx,
-      vartype: vartype.clone(),
+      vartype,
       setter: None, // temporally
     };
     let retval =
@@ -691,8 +687,8 @@ impl Function {
               Some(CompileError::MismatchSetterReturnType(
                 setter.name.clone(),
                 name.clone(),
-                vartype.clone(),
-                borrowed_setter_func.return_type.clone(),
+                vartype,
+                borrowed_setter_func.return_type,
                 setter.pos,
               ))
             }

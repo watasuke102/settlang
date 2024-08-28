@@ -54,83 +54,167 @@ pub fn expect_code(code: &mut SourceCode) -> TokenizeResult<Vec<Statement>> {
 
 fn expect_statement(code: &mut SourceCode) -> TokenizeResult<Statement> {
   let pos = code.lines_and_cols();
-  match expect_return(code) {
-    Ok(res) => {
-      return Ok(Statement {
-        kind:  StatementKind::Return(res),
-        begin: pos,
-        end:   code.lines_and_cols(),
-      })
+  for test in [
+    expect_fn_declaration,
+    expect_var_declaration,
+    expect_return,
+    expect_for_loop,
+    expect_setter_call,
+    expect_expr_statement,
+  ] {
+    match test(code) {
+      Ok(res) => {
+        return Ok(Statement {
+          kind:  res,
+          begin: pos,
+          end:   code.lines_and_cols(),
+        })
+      }
+      Err(TokenizeError::NoMatch) => (),
+      Err(e) => return Err(e),
     }
-    Err(TokenizeError::NoMatch) => (),
-    Err(e) => return Err(e),
   }
-  match expect_fn_declaration(code) {
-    Ok(res) => {
-      return Ok(Statement {
-        kind:  StatementKind::FnDecl(res),
-        begin: pos,
-        end:   code.lines_and_cols(),
-      })
-    }
-    Err(TokenizeError::NoMatch) => (),
-    Err(e) => return Err(e),
-  }
-  match expect_var_declaration(code) {
-    Ok(res) => {
-      return Ok(Statement {
-        kind:  StatementKind::VarDecl(res),
-        begin: pos,
-        end:   code.lines_and_cols(),
-      })
-    }
-    Err(TokenizeError::NoMatch) => (),
-    Err(e) => return Err(e),
-  }
-  match expect_for_loop(code) {
-    Ok(res) => {
-      return Ok(Statement {
-        kind:  StatementKind::ForLoop(res),
-        begin: pos,
-        end:   code.lines_and_cols(),
-      })
-    }
-    Err(TokenizeError::NoMatch) => (),
-    Err(e) => return Err(e),
-  }
-  match expect_setter_call(code) {
-    Ok(res) => {
-      return Ok(Statement {
-        kind:  StatementKind::SetterCall(res),
-        begin: pos,
-        end:   code.lines_and_cols(),
-      })
-    }
-    Err(TokenizeError::NoMatch) => (),
-    Err(e) => return Err(e),
-  }
-  match expect_expression(code) {
-    Ok(res) => {
-      return Ok(Statement {
-        kind:  StatementKind::ExprStatement(res),
-        begin: pos,
-        end:   code.lines_and_cols(),
-      })
-    }
-    Err(TokenizeError::NoMatch) => (),
-    Err(e) => return Err(e),
-  }
-
   Err(TokenizeError::NoMatch)
 }
 
-fn expect_return(code: &mut SourceCode) -> TokenizeResult<Option<Expression>> {
+/// (variable name, type, setter)
+fn expect_var_spec(code: &mut SourceCode) -> TokenizeResult<(String, Type, Option<Setter>)> {
+  let name = expect_ident(code)?;
+  char(':')(code.skip_space()).or(Err(TokenizeError::Expected(": <type>")))?;
+  code.skip_space();
+  let vartype = expect_type(code)?;
+  let setter = if char('|')(code.skip_space()).is_ok() {
+    let pos = code.skip_space().lines_and_cols();
+    let name = expect_ident(code).or(Err(TokenizeError::ExpectedFunction))?;
+    Some(Setter { name, pos })
+  } else {
+    None
+  };
+  Ok((name, vartype, setter))
+}
+
+#[derive(Debug, Clone)]
+pub struct Function {
+  pub name:         String,
+  pub args:         Vec<Argument>,
+  pub return_type:  Option<Type>,
+  pub code:         Vec<Statement>,
+  pub declared_pos: source_code::Position,
+}
+#[derive(Debug, Clone)]
+pub struct Argument {
+  pub name:    String,
+  pub vartype: Type,
+  pub setter:  Option<Setter>,
+}
+fn expect_fn_declaration(code: &mut SourceCode) -> TokenizeResult<StatementKind> {
+  expect_keyword(code, "fn")?;
+  code.skip_space();
+  let declared_pos = code.lines_and_cols();
+  let name = expect_ident(code)?;
+  char('(')(code.skip_space()).or(Err(TokenizeError::Expected("(<arguments>?)")))?;
+  let mut args = Vec::new();
+  loop {
+    match expect_var_spec(code.skip_space()) {
+      Ok((name, vartype, setter)) => {
+        args.push(Argument {
+          name,
+          vartype,
+          setter,
+        });
+      }
+      Err(TokenizeError::NoMatch) => break,
+      Err(e) => return Err(e),
+    }
+    if char(',')(code.skip_space()).is_err() {
+      break;
+    }
+  }
+  char(')')(code.skip_space()).or(Err(TokenizeError::UnclosedDelimiter))?;
+
+  let return_type = match str("->")(code.skip_space()) {
+    Ok(()) => Some(expect_type(code.skip_space())?),
+    Err(ParseError::PartialMatch(_)) => return Err(TokenizeError::Expected("-> <type>")),
+    Err(_) => None,
+  };
+
+  char('{')(code.skip_space()).or(Err(TokenizeError::Expected("{ <code>? }")))?;
+  let fn_code = expect_code(code.skip_space())?;
+  char('}')(code.skip_space()).or(Err(TokenizeError::UnclosedDelimiter))?;
+
+  Ok(StatementKind::FnDecl(Function {
+    name,
+    args,
+    return_type,
+    code: fn_code,
+    declared_pos,
+  }))
+}
+
+#[derive(Debug, Clone)]
+pub struct Variable {
+  pub name:          String,
+  pub vartype:       Type,
+  pub setter:        Option<Setter>,
+  pub initial_value: Expression,
+}
+#[derive(Debug, Clone)]
+pub struct Setter {
+  pub name: String,
+  pub pos:  source_code::Position,
+}
+fn expect_var_declaration(code: &mut SourceCode) -> TokenizeResult<StatementKind> {
+  expect_keyword(code, "let")?;
+  let (name, vartype, setter) = expect_var_spec(code.skip_space())?;
+  char('=')(code.skip_space()).or(Err(TokenizeError::Expected("= <initial value>")))?;
+  let initial_value = expect_expression(code.skip_space())?;
+  Ok(StatementKind::VarDecl(Variable {
+    name,
+    vartype,
+    setter,
+    initial_value,
+  }))
+}
+
+fn expect_return(code: &mut SourceCode) -> TokenizeResult<StatementKind> {
   expect_keyword(code, "ret")?;
   match expect_expression(code.skip_space()) {
-    Ok(res) => Ok(Some(res)),
-    Err(TokenizeError::NoMatch) => Ok(None),
+    Ok(res) => Ok(StatementKind::Return(Some(res))),
+    Err(TokenizeError::NoMatch) => Ok(StatementKind::Return(None)),
     Err(e) => Err(e),
   }
+}
+
+#[derive(Debug, Clone)]
+pub struct For {
+  pub varname:   String,
+  pub inclusive: bool,
+  pub begin:     Expression,
+  pub end:       Expression,
+  pub code:      Vec<Statement>,
+}
+fn expect_for_loop(code: &mut SourceCode) -> TokenizeResult<StatementKind> {
+  expect_keyword(code, "for")?;
+  // use closure to prevent moving value
+  let err = || TokenizeError::Expected("for <varname> in <begin>..<end>");
+  let varname = expect_ident(code.skip_space())?;
+  seq(vec![str("in"), mul(space())])(code.skip_space()).or(Err(err()))?;
+  let begin = expect_expression(code.skip_space()).or(Err(err()))?;
+  str("..")(code.skip_space()).or(Err(err()))?;
+  let inclusive = char('=')(code.skip_space()).is_ok();
+  let end = expect_expression(code.skip_space()).or(Err(err()))?;
+
+  char('{')(code.skip_space()).or(Err(TokenizeError::Expected("{ <code>? }")))?;
+  let for_code = expect_code(code.skip_space())?;
+  char('}')(code.skip_space()).or(Err(TokenizeError::UnclosedDelimiter))?;
+
+  Ok(StatementKind::ForLoop(For {
+    varname,
+    inclusive,
+    begin,
+    end,
+    code: for_code,
+  }))
 }
 
 #[derive(Debug, Clone)]
@@ -138,7 +222,7 @@ pub struct SetterCall {
   pub varname: String,
   pub args:    Vec<Expression>,
 }
-fn expect_setter_call(code: &mut SourceCode) -> TokenizeResult<SetterCall> {
+fn expect_setter_call(code: &mut SourceCode) -> TokenizeResult<StatementKind> {
   let initial_pos = code.pos();
   let varname = expect_ident(code).or_else(|err| {
     code.unwind(initial_pos);
@@ -174,137 +258,7 @@ fn expect_setter_call(code: &mut SourceCode) -> TokenizeResult<SetterCall> {
   }
   char(')')(code.skip_space()).or(Err(TokenizeError::UnclosedDelimiter))?;
 
-  Ok(setter_call)
-}
-
-#[derive(Debug, Clone)]
-pub struct Variable {
-  pub name:          String,
-  pub vartype:       Type,
-  pub setter:        Option<Setter>,
-  pub initial_value: Expression,
-}
-#[derive(Debug, Clone)]
-pub struct Setter {
-  pub name: String,
-  pub pos:  source_code::Position,
-}
-fn expect_var_declaration(code: &mut SourceCode) -> TokenizeResult<Variable> {
-  expect_keyword(code, "let")?;
-  let (name, vartype, setter) = expect_var_spec(code.skip_space())?;
-  char('=')(code.skip_space()).or(Err(TokenizeError::Expected("= <initial value>")))?;
-  let initial_value = expect_expression(code.skip_space())?;
-  Ok(Variable {
-    name,
-    vartype,
-    setter,
-    initial_value,
-  })
-}
-/// (variable name, type, setter)
-fn expect_var_spec(code: &mut SourceCode) -> TokenizeResult<(String, Type, Option<Setter>)> {
-  let name = expect_ident(code)?;
-  char(':')(code.skip_space()).or(Err(TokenizeError::Expected(": <type>")))?;
-  code.skip_space();
-  let vartype = expect_type(code)?;
-  let setter = if char('|')(code.skip_space()).is_ok() {
-    let pos = code.skip_space().lines_and_cols();
-    let name = expect_ident(code).or(Err(TokenizeError::ExpectedFunction))?;
-    Some(Setter { name, pos })
-  } else {
-    None
-  };
-  Ok((name, vartype, setter))
-}
-
-#[derive(Debug, Clone)]
-pub struct For {
-  pub varname:   String,
-  pub inclusive: bool,
-  pub begin:     Expression,
-  pub end:       Expression,
-  pub code:      Vec<Statement>,
-}
-fn expect_for_loop(code: &mut SourceCode) -> TokenizeResult<For> {
-  expect_keyword(code, "for")?;
-  // use closure to prevent moving value
-  let err = || TokenizeError::Expected("for <varname> in <begin>..<end>");
-  let varname = expect_ident(code.skip_space())?;
-  seq(vec![str("in"), mul(space())])(code.skip_space()).or(Err(err()))?;
-  let begin = expect_expression(code.skip_space()).or(Err(err()))?;
-  str("..")(code.skip_space()).or(Err(err()))?;
-  let inclusive = char('=')(code.skip_space()).is_ok();
-  let end = expect_expression(code.skip_space()).or(Err(err()))?;
-
-  char('{')(code.skip_space()).or(Err(TokenizeError::Expected("{ <code>? }")))?;
-  let for_code = expect_code(code.skip_space())?;
-  char('}')(code.skip_space()).or(Err(TokenizeError::UnclosedDelimiter))?;
-
-  Ok(For {
-    varname,
-    inclusive,
-    begin,
-    end,
-    code: for_code,
-  })
-}
-
-#[derive(Debug, Clone)]
-pub struct Function {
-  pub name:         String,
-  pub args:         Vec<Argument>,
-  pub return_type:  Option<Type>,
-  pub code:         Vec<Statement>,
-  pub declared_pos: source_code::Position,
-}
-#[derive(Debug, Clone)]
-pub struct Argument {
-  pub name:    String,
-  pub vartype: Type,
-  pub setter:  Option<Setter>,
-}
-fn expect_fn_declaration(code: &mut SourceCode) -> TokenizeResult<Function> {
-  expect_keyword(code, "fn")?;
-  code.skip_space();
-  let declared_pos = code.lines_and_cols();
-  let name = expect_ident(code)?;
-  char('(')(code.skip_space()).or(Err(TokenizeError::Expected("(<arguments>?)")))?;
-  let mut args = Vec::new();
-  loop {
-    match expect_var_spec(code.skip_space()) {
-      Ok((name, vartype, setter)) => {
-        args.push(Argument {
-          name,
-          vartype,
-          setter,
-        });
-      }
-      Err(TokenizeError::NoMatch) => break,
-      Err(e) => return Err(e),
-    }
-    if char(',')(code.skip_space()).is_err() {
-      break;
-    }
-  }
-  char(')')(code.skip_space()).or(Err(TokenizeError::UnclosedDelimiter))?;
-
-  let return_type = match str("->")(code.skip_space()) {
-    Ok(()) => Some(expect_type(code.skip_space())?),
-    Err(ParseError::PartialMatch(_)) => return Err(TokenizeError::Expected("-> <type>")),
-    Err(_) => None,
-  };
-
-  char('{')(code.skip_space()).or(Err(TokenizeError::Expected("{ <code>? }")))?;
-  let fn_code = expect_code(code.skip_space())?;
-  char('}')(code.skip_space()).or(Err(TokenizeError::UnclosedDelimiter))?;
-
-  Ok(Function {
-    name,
-    args,
-    return_type,
-    code: fn_code,
-    declared_pos,
-  })
+  Ok(StatementKind::SetterCall(setter_call))
 }
 
 #[derive(Debug, Clone)]
@@ -377,7 +331,9 @@ impl ExprElement {
     }
   }
 }
-// FIXME (?) : [(char('+'), ExprElement::Add), (char('-'), ExprElement::Sub)] is INVALID
+fn expect_expr_statement(code: &mut SourceCode) -> TokenizeResult<StatementKind> {
+  Ok(StatementKind::ExprStatement(expect_expression(code)?))
+}
 fn expect_expression(code: &mut SourceCode) -> TokenizeResult<Expression> {
   let begin = code.lines_and_cols();
   return Ok(Expression {
@@ -417,6 +373,7 @@ fn expect_expression(code: &mut SourceCode) -> TokenizeResult<Expression> {
   fn expect_expr_eq(code: &mut SourceCode) -> TokenizeResult<ExprElement> {
     let mut expr = expect_expr_cmp(code)?;
 
+    // FIXME (?) : [(str("=="), ExprElement::Eq),(str("!="), ExprElement::NonEq)] is INVALID
     let tester = [str("=="), str("!=")];
     let constructor = [ExprElement::Eq, ExprElement::NonEq];
     'outer: loop {
@@ -691,6 +648,9 @@ mod test {
         match expect_var_declaration(&mut SourceCode::new(code)) {
           Ok(res) => {
             if let Some(expect) = expect {
+              let StatementKind::VarDecl(res) = res else {
+                unreachable!();
+              };
               (res, expect)
             } else {
               panic!("code `{}` is expected to fail but it succeeded", code);
@@ -729,6 +689,9 @@ mod test {
       let func = match expect_fn_declaration(&mut SourceCode::new(code)) {
         Ok(res) => {
           if is_expected_success {
+            let StatementKind::FnDecl(res) = res else {
+              unreachable!();
+            };
             res
           } else {
             panic!("code `{}` is expected to fail but it succeeded", code);
@@ -776,7 +739,11 @@ mod test {
         vec!["first", "second", "third"],
       ),
     ] {
-      let function = expect_fn_declaration(&mut SourceCode::new(code)).expect(code);
+      let StatementKind::FnDecl(function) =
+        expect_fn_declaration(&mut SourceCode::new(code)).expect(code)
+      else {
+        unreachable!();
+      };
       for i in 0..expected_arg_names.len() {
         assert_eq!(function.args[i].name, expected_arg_names[i]);
         assert_eq!(function.args[i].vartype.type_ident, "i32");
@@ -809,6 +776,9 @@ mod test {
         match expect_for_loop(&mut SourceCode::new(code)) {
           Ok(res) => {
             if let Some(expect) = expect {
+              let StatementKind::ForLoop(res) = res else {
+                unreachable!();
+              };
               (res, expect)
             } else {
               panic!("code `{}` is expected to fail but it succeeded", code);
@@ -840,12 +810,15 @@ mod test {
       ("ret(1)", true, 1),
       ("ret0", false, 0),
     ] {
-      let Ok(expr) = expect_return(&mut SourceCode::new(&code)) else {
+      let Ok(res) = expect_return(&mut SourceCode::new(&code)) else {
         if is_expected_success {
           panic!("code `{}` is expected to succeed but it fails", code);
         } else {
           continue;
         }
+      };
+      let StatementKind::Return(expr) = res else {
+        unreachable!();
       };
       let expr = expr.expect("No return value expression");
       let ExprElement::Int(parsed_retval) = expr.element else {
@@ -860,8 +833,11 @@ mod test {
       "ret\n}", // next line is the end of function
       "ret}",   // end of function, no space
     ] {
-      let expr = expect_return(&mut SourceCode::new(code))
-        .unwrap_or_else(|e| panic!("failed to parse '{:?}' as return statement : {:?}", code, e));
+      let StatementKind::Return(expr) = expect_return(&mut SourceCode::new(code))
+        .unwrap_or_else(|e| panic!("failed to parse '{:?}' as return statement : {:?}", code, e))
+      else {
+        unreachable!()
+      };
       assert!(expr.is_none());
     }
   }
@@ -887,6 +863,9 @@ mod test {
         match expect_setter_call(&mut SourceCode::new(code)) {
           Ok(res) => {
             if let Some(expect) = expect {
+              let StatementKind::SetterCall(res) = res else {
+                unreachable!();
+              };
               (res, expect)
             } else {
               panic!("code `{}` is expected to fail but it succeeded", code);

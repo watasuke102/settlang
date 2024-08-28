@@ -1104,7 +1104,9 @@ impl Function {
 
 #[cfg(test)]
 mod test {
-  use crate::source_code::{self, Position};
+  use tokenizer::ExprElement;
+
+  use crate::source_code::Position;
 
   use super::*;
   #[test]
@@ -1114,7 +1116,7 @@ mod test {
       ("i64", Some(Type::I64)),
       ("i65535", None),
     ] {
-      let pos = source_code::Position::default();
+      let pos = Position::default();
       let vartype = tokenizer::Type {
         type_ident: type_ident.to_string(),
         pos,
@@ -1262,5 +1264,72 @@ mod test {
         assert_eq!(errors[0], expect_err);
       }
     }
+  }
+  #[test]
+  fn succeed_to_cast() {
+    fn new(element: ExprElement) -> tokenizer::Expression {
+      tokenizer::Expression {
+        element,
+        begin: Position::default(),
+        end: Position::default(),
+      }
+    }
+    let func: UncompiledFnCarrier = Rc::new(RefCell::new(UncompiledFunction {
+      idx: 0,
+      name: "f".to_string(),
+      args: vec![Argument {
+        name:    "x".to_string(),
+        vartype: Type::I32,
+        setter:  None,
+      }],
+      return_type: Type::I32,
+      ..Default::default()
+    }));
+    let pos = Position::default();
+    let varname = "a".to_string();
+    let var_in_scope: HashMap<String, Variable> = [(
+      varname.clone(),
+      Variable {
+        idx:     0,
+        vartype: Type::I32,
+        setter:  None,
+      },
+    )]
+    .into_iter()
+    .collect();
+    let get_accessible_fn_by_name: AccessibleFnGetter = Box::new(|_: &String| None);
+
+    {
+      use tokenizer::ExprElement::Int;
+      let Statement::Return(return_stat) = Statement::new_return(
+        &Some(new(Int(0))), // i64
+        &func.borrow(),     // return type is i32
+        pos,
+        pos,
+        &var_in_scope,
+        &get_accessible_fn_by_name,
+      )
+      .unwrap() else {
+        unreachable!();
+      };
+      assert_eq!(return_stat.result_type, Type::I32);
+    }
+    {
+      use tokenizer::ExprElement::{Add, Int, Variable};
+      let expr = Expression::from_token(
+        &new(Add(
+          Box::new(Int(0)),                         // i64
+          Box::new(Variable(varname.clone(), pos)), // i32
+        )),
+        &func.borrow(),
+        &var_in_scope,
+        &get_accessible_fn_by_name,
+      )
+      .unwrap();
+      assert_eq!(expr.expr_stack[0], ExprCommand::ImmI32(0));
+      assert_eq!(expr.expr_stack[1], ExprCommand::PushVar(0));
+      assert_eq!(expr.expr_stack[2], ExprCommand::Add);
+    }
+    // todo: function call, variable initialization
   }
 }

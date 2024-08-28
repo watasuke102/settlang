@@ -155,13 +155,15 @@ fn assemble_statements(statements: &Vec<compile::Statement>) -> Result<Vec<u8>, 
   Ok(expr)
 }
 fn assemble_expr(commands: &Vec<compile::expression::ExprCommand>) -> Result<Vec<u8>, String> {
+  use compile::Type;
   let mut res = Vec::new();
-  let mut current_type = Numtype::I64;
+  let mut current_type = Type::I64;
   macro_rules! map {
     ($i32_inst:expr, $i64_inst:expr) => {
       match current_type {
-          Numtype::I32 => $i32_inst,
-          Numtype::I64 => $i64_inst,
+          Type::I32 => $i32_inst,
+          Type::I64 => $i64_inst,
+          _ => return Err(format!("Invalid type ({:?})", current_type)),
         } as u8
       }
     }
@@ -201,28 +203,30 @@ fn assemble_expr(commands: &Vec<compile::expression::ExprCommand>) -> Result<Vec
       ImmI32(imm) => {
         res.push(ConstI32 as u8);
         res.append(&mut to_signed_leb128(*imm as i64));
-        current_type = Numtype::I32;
+        current_type = Type::I32;
       }
       ImmI64(imm) => {
         res.push(ConstI64 as u8);
         res.append(&mut to_signed_leb128(*imm as i64));
-        current_type = Numtype::I64;
+        current_type = Type::I64;
       }
-      PushVar(idx) => {
+      PushVar(idx, vartype) => {
         res.push(LocalGet as u8);
         res.append(&mut to_signed_leb128(*idx as i64));
+        current_type = vartype.clone();
       }
-      FnCall(idx) => {
+      FnCall(idx, return_type) => {
         res.push(Call as u8);
         res.append(&mut to_signed_leb128(*idx as i64));
+        current_type = return_type.clone();
       }
       CastI32ToI64 => {
         res.push(ExtendSignedI32ToI64 as u8);
-        current_type = Numtype::I64;
+        current_type = Type::I64;
       }
       CastI64ToI32 => {
         res.push(WrapI64ToI32 as u8);
-        current_type = Numtype::I32;
+        current_type = Type::I32;
       }
     }
   }

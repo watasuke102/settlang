@@ -29,8 +29,8 @@ pub enum ExprCommand {
   IfExpr(If),
   ImmI32(i32),
   ImmI64(i64),
-  PushVar(usize),
-  FnCall(usize),
+  PushVar(usize, Type), // idx, vartype
+  FnCall(usize, Type),  //idx, return type
   CastI32ToI64,
   CastI64ToI32,
 }
@@ -209,7 +209,7 @@ impl Expression {
       },
       Variable(var_name, pos) => match var_in_scope.get(var_name) {
         Some(var) => {
-          expr_stack.push(ExprCommand::PushVar(var.idx));
+          expr_stack.push(ExprCommand::PushVar(var.idx, var.vartype.clone()));
           result_type.get_or_init(|| var.vartype.clone());
         }
         None => errors.push(CompileError::UndefinedVariable(var_name.clone(), *pos)),
@@ -273,7 +273,10 @@ impl Expression {
         ) {
           Ok(mut expr) => {
             expr_stack.append(&mut expr);
-            expr_stack.push(ExprCommand::FnCall(called_fn.idx));
+            expr_stack.push(ExprCommand::FnCall(
+              called_fn.idx,
+              called_fn.return_type.clone(),
+            ));
             result_type.get_or_init(|| called_fn.return_type.clone());
           }
           Err(mut e) => errors.append(&mut e),

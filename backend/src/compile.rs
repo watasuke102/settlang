@@ -782,11 +782,11 @@ mod test {
           }
           ImmI32(v) => stack.push(*v as i64),
           ImmI64(v) => stack.push(*v),
-          PushVar(idx) => {
+          PushVar(idx, _) => {
             assert_eq!(*idx, 0);
             stack.push(10);
           }
-          FnCall(idx) => assert_eq!(*idx, 0),
+          FnCall(idx, _) => assert_eq!(*idx, 0),
           _ => unreachable!(),
         }
       }
@@ -936,7 +936,7 @@ mod test {
       )
       .unwrap();
       assert_eq!(expr.expr_stack[0], ExprCommand::ImmI32(0));
-      assert_eq!(expr.expr_stack[1], ExprCommand::PushVar(0));
+      assert_eq!(expr.expr_stack[1], ExprCommand::PushVar(0, Type::I32));
       assert_eq!(expr.expr_stack[2], ExprCommand::Add);
     }
     // todo: function call, variable initialization

@@ -156,7 +156,7 @@ fn assemble_statements(statements: &Vec<compile::Statement>) -> Result<Vec<u8>, 
 }
 fn assemble_expr(commands: &Vec<compile::ExprCommand>) -> Result<Vec<u8>, String> {
   let mut res = Vec::new();
-  let mut current_type = Numtype::I32;
+  let mut current_type = Numtype::I64;
   macro_rules! map {
     ($i32_inst:expr, $i64_inst:expr) => {
       match current_type {
@@ -200,11 +200,13 @@ fn assemble_expr(commands: &Vec<compile::ExprCommand>) -> Result<Vec<u8>, String
       }
       ImmI32(imm) => {
         res.push(ConstI32 as u8);
-        res.append(&mut to_signed_leb128(*imm as i64))
+        res.append(&mut to_signed_leb128(*imm as i64));
+        current_type = Numtype::I32;
       }
       ImmI64(imm) => {
         res.push(ConstI64 as u8);
-        res.append(&mut to_signed_leb128(*imm as i64))
+        res.append(&mut to_signed_leb128(*imm as i64));
+        current_type = Numtype::I64;
       }
       PushVar(idx) => {
         res.push(LocalGet as u8);

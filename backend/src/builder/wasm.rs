@@ -154,7 +154,7 @@ fn assemble_statements(statements: &Vec<compile::Statement>) -> Result<Vec<u8>, 
   }
   Ok(expr)
 }
-fn assemble_expr(commands: &Vec<compile::ExprCommand>) -> Result<Vec<u8>, String> {
+fn assemble_expr(commands: &Vec<compile::expression::ExprCommand>) -> Result<Vec<u8>, String> {
   let mut res = Vec::new();
   let mut current_type = Numtype::I64;
   macro_rules! map {
@@ -166,7 +166,7 @@ fn assemble_expr(commands: &Vec<compile::ExprCommand>) -> Result<Vec<u8>, String
       }
     }
   for command in commands {
-    use compile::ExprCommand::*;
+    use compile::expression::ExprCommand::*;
     use Inst::*;
     match command {
       Add => res.push(map!(AddI32, AddI64)),

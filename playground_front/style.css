@@ -42,8 +42,6 @@ textarea {
   padding: 8px 12px;
   display: grid;
   grid-template-rows: auto 1fr auto auto;
-  display: flex;
-  flex-direction: column;
   gap: 12px;
 }
 .heading_and_button {
@@ -56,6 +54,9 @@ textarea {
 }
 #input_area {
   height: 100%;
+}
+#output_area {
+  min-height: 180px;
 }
 
 #langdesc {

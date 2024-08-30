@@ -18,23 +18,37 @@
 #*
   Settlang minimal example
 *#
-fn a_plus_2b(a: i32, b: i32) -> i64 {
-  let b: i32 = 2*b # shadowing
-  ret a+b
+fn accumulator(self: i64, e: i64) -> i64 {
+  # just return added value
+  ret self + e
 }
-fn variables() -> i32 {
-  let a: i32 = 10
-  let b: i32 = 5
-  ret a + a_plus_2b(a, b)
+
+fn randomize() -> i64 {
+  ret random(0, 100)
 }
+
 # function named `main` is entrypoint
-fn main() -> i32 {
-  ret variables()
+fn main() -> i64 {
+  # they have 'setter' function, so mutable
+  let sum: i64 | accumulator = 0
+  let rnd: i64 | randomize   = 0
+
+  for i in 0..10 {
+    rnd.set()         # call setter of rnd
+    print("{}", rnd)  # print value
+    if i != 9 {
+      print(", ")
+    }
+    sum.set(sum, rnd) # call setter of sum
+  }
+  println("")
+
+  ret sum
 }
 </textarea
           >
           <h2>output</h2>
-          <textarea id="output_area" rows="8" readonly></textarea>
+          <textarea id="output_area" readonly></textarea>
         </div>
         <div id="langdesc">
           <h1>Settlang</h1>

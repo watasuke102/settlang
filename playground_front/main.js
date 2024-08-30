@@ -37,7 +37,7 @@ function print(str_ptr, ...args) {
 async function init() {
   const compiler = await (async () => {
     try {
-      const res = await fetch('/compiler.wasm');
+      const res = await fetch('/settlang/compiler.wasm');
       if (!res.ok || !res.body || res.body instanceof ReadableStream === false) {
         output.innerText = 'Failed to load : invalid response';
         return null;

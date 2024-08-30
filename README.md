@@ -4,7 +4,7 @@ Settlang is a statically-typed programming language that express mutability by w
 
 ## Let's try!
 
-Visit [Playground (watasuke102.github.io/settlang)](https://watasuke102.github.io/settlang/) for try playground!
+Visit [Playground (watasuke102.github.io/settlang)](https://watasuke102.github.io/settlang/) to try on the playground!
 
 ## Example
 

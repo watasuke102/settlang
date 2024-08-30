@@ -6,7 +6,8 @@ use std::{
 };
 
 use super::{
-  i64_to_i32, AccessibleFnGetter, CompileResult, Statement, Type, UncompiledFunction, Variable,
+  i64_to_i32, AccessibleFnGetter, CompileResult, ImportMap, Statement, Type, UncompiledFunction,
+  Variable,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -31,6 +32,7 @@ pub enum ExprCommand {
   ImmI64(i64),
   PushVar(usize, Type), // idx, vartype
   FnCall(usize, Type),  //idx, return type
+  StdlibCall(usize, Type),
   CastI32ToI64,
   CastI64ToI32,
 }
@@ -84,6 +86,7 @@ impl Expression {
     parent_func: &Ref<UncompiledFunction>,
     var_in_scope: &HashMap<String, Variable>,
     get_accessible_fn_by_name: &AccessibleFnGetter,
+    imports: &mut ImportMap,
   ) -> CompileResult<Self> {
     if let Ok(imm) = token.element._eval() {
       return Ok(Expression {
@@ -105,6 +108,7 @@ impl Expression {
         parent_func,
         var_in_scope,
         get_accessible_fn_by_name,
+        imports,
       )
       .or_else(|mut res| {
         errors.append(&mut res);
@@ -115,6 +119,7 @@ impl Expression {
         parent_func,
         var_in_scope,
         get_accessible_fn_by_name,
+        imports,
       )
       .or_else(|mut res| {
         errors.append(&mut res);
@@ -220,6 +225,7 @@ impl Expression {
           parent_func,
           var_in_scope,
           get_accessible_fn_by_name,
+          imports,
         ) {
           Ok(res) => res,
           Err(mut e) => {
@@ -251,6 +257,41 @@ impl Expression {
         *result_type.get_mut_or_init(|| to_type.clone()) = to_type.clone();
       }
       FnCall(fn_name, arguments, pos) => 'fn_call: {
+        // stdlib
+        {
+          let mut errors_arg = Vec::new();
+          let mut args_expr = Vec::new();
+          let mut args_type = Vec::new();
+          for arg_expr in arguments {
+            let mut expr = match Expression::from_token(
+              arg_expr,
+              parent_func,
+              var_in_scope,
+              get_accessible_fn_by_name,
+              imports,
+            ) {
+              Ok(res) => res,
+              Err(mut err) => {
+                errors_arg.append(&mut err);
+                continue;
+              }
+            };
+            args_expr.append(&mut expr.expr_stack);
+            args_type.push(expr.result_type);
+          }
+          if !errors_arg.is_empty() {
+            errors.append(&mut errors_arg);
+            break 'fn_call;
+          }
+
+          if let Some(stdlib) = imports.get(fn_name.clone(), args_type) {
+            expr_stack.append(&mut args_expr);
+            expr_stack.push(ExprCommand::StdlibCall(stdlib.idx, stdlib.return_type));
+            result_type.get_or_init(|| stdlib.return_type.clone());
+            break 'fn_call;
+          }
+        }
+        // user-defined function
         let Some(called_fn) = get_accessible_fn_by_name(fn_name) else {
           errors.push(CompileError::UndefinedFunction(fn_name.clone(), *pos));
           break 'fn_call;
@@ -270,6 +311,7 @@ impl Expression {
           &called_fn,
           var_in_scope,
           get_accessible_fn_by_name,
+          imports,
         ) {
           Ok(mut expr) => {
             expr_stack.append(&mut expr);
@@ -288,6 +330,7 @@ impl Expression {
           parent_func,
           var_in_scope,
           get_accessible_fn_by_name,
+          imports,
         ) {
           Ok(res) => res,
           Err(mut e) => {
@@ -300,6 +343,7 @@ impl Expression {
           parent_func,
           var_in_scope,
           get_accessible_fn_by_name,
+          imports,
         ) {
           Ok(res) => res,
           Err(mut e) => {
@@ -324,6 +368,7 @@ impl Expression {
             parent_func,
             var_in_scope,
             get_accessible_fn_by_name,
+            imports,
           ) {
             Ok(res) => res,
             Err(mut e) => {
@@ -374,18 +419,24 @@ pub(super) fn exprcomand_from_token_vec(
   callee: &Ref<UncompiledFunction>,
   var_in_scope: &HashMap<String, Variable>,
   get_accessible_fn_by_name: &AccessibleFnGetter,
+  imports: &mut ImportMap,
 ) -> CompileResult<Vec<ExprCommand>> {
   let mut errors = Vec::new();
   let mut arguments_expr = Vec::new();
   for (i, arg_expr) in token_vec.iter().enumerate() {
-    let mut expr =
-      match Expression::from_token(arg_expr, callee, var_in_scope, get_accessible_fn_by_name) {
-        Ok(res) => res,
-        Err(mut err) => {
-          errors.append(&mut err);
-          continue;
-        }
-      };
+    let mut expr = match Expression::from_token(
+      arg_expr,
+      callee,
+      var_in_scope,
+      get_accessible_fn_by_name,
+      imports,
+    ) {
+      Ok(res) => res,
+      Err(mut err) => {
+        errors.append(&mut err);
+        continue;
+      }
+    };
     if expr.result_type == callee.args[i].vartype {
       arguments_expr.append(&mut expr.expr_stack);
     } else {

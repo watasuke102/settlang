@@ -17,4 +17,4 @@ clean:
 .PHONY: all playground clean test
 
 %.wasm: %.stt
-	cargo run -p cli_compiler -- -o $@ $<
+	cargo run -p cli_compiler -- --verbose -o $@ $<

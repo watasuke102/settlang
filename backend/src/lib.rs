@@ -11,6 +11,7 @@ mod error;
 mod leb128;
 mod parser;
 pub mod source_code;
+mod stdlib;
 mod tokenizer;
 
 pub fn compile(code: &mut SourceCode) -> Result<Program, String> {

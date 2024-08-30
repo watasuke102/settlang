@@ -5,7 +5,12 @@ use std::{
   rc::Rc,
 };
 
-use crate::{error::CompileError, source_code, tokenizer};
+use crate::{
+  error::CompileError,
+  source_code,
+  stdlib::{self},
+  tokenizer,
+};
 
 pub mod expression;
 
@@ -39,9 +44,43 @@ fn i64_to_i32(
 #[derive(Debug)]
 pub struct Program {
   pub functions: Vec<Function>,
+  pub imports:   Vec<Import>,
+}
+#[derive(Debug, Default)]
+pub struct ImportMap {
+  map: HashMap<(String, Vec<Type>), Import>,
+}
+impl ImportMap {
+  pub fn get(&mut self, name: String, args: Vec<Type>) -> Option<Import> {
+    if let Some(import) = self.map.get(&(name.clone(), args.clone())) {
+      Some(import.clone())
+    } else if let Some(stdlib) = stdlib::get_stdlib(&name, &args) {
+      let import = Import {
+        idx:         self.map.len(),
+        module_name: stdlib.module_name,
+        name:        stdlib.name.clone(),
+        args:        args.clone(),
+        return_type: stdlib.return_type,
+      };
+      self
+        .map
+        .insert((name.clone(), args.clone()), import.clone());
+      Some(import)
+    } else {
+      None
+    }
+  }
+}
+#[derive(Debug, Clone)]
+pub struct Import {
+  pub idx:         usize,
+  pub module_name: String,
+  pub name:        String,
+  pub args:        Vec<Type>,
+  pub return_type: Type,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub enum Type {
   Void,
   #[default]
@@ -202,11 +241,16 @@ impl Statement {
     statement_end: source_code::Position,
     var_in_scope: &HashMap<String, Variable>,
     get_accessible_fn_by_name: &AccessibleFnGetter,
+    imports: &mut ImportMap,
   ) -> CompileResult<Self> {
     let mut retval = match expr {
-      Some(expr) => {
-        Expression::from_token(expr, parent_func, &var_in_scope, &get_accessible_fn_by_name)?
-      }
+      Some(expr) => Expression::from_token(
+        expr,
+        parent_func,
+        &var_in_scope,
+        &get_accessible_fn_by_name,
+        imports,
+      )?,
       None => Expression {
         expr_stack:  Vec::new(),
         result_type: Type::Void,
@@ -232,6 +276,7 @@ impl Statement {
     statement_begin: source_code::Position,
     var_in_scope: &HashMap<String, Variable>,
     get_accessible_fn_by_name: &AccessibleFnGetter,
+    imports: &mut ImportMap,
   ) -> CompileResult<Self> {
     // get variable that will be mutated
     let Some(var) = var_in_scope.get(&setter_call.varname) else {
@@ -254,6 +299,7 @@ impl Statement {
       &setter,
       &var_in_scope,
       &get_accessible_fn_by_name,
+      imports,
     )?;
     Ok(Statement::SetterCall(MutationInfo {
       setter: setter.idx,
@@ -267,16 +313,21 @@ impl Statement {
     parent_func: &Ref<UncompiledFunction>,
     var_in_scope: &HashMap<String, Variable>,
     get_accessible_fn_by_name: &AccessibleFnGetter,
+    imports: &mut ImportMap,
   ) -> CompileResult<Vec<Statement>> {
     let (res, errors): (Vec<_>, Vec<_>) = token_vec
       .iter()
       .map(|statement| {
         use tokenizer::StatementKind::*;
         match &statement.kind {
-          ExprStatement(expr) => {
-            Expression::from_token(expr, parent_func, &var_in_scope, &get_accessible_fn_by_name)
-              .and_then(|expr| Ok(Statement::ExprStatement(expr, true)))
-          }
+          ExprStatement(expr) => Expression::from_token(
+            expr,
+            parent_func,
+            &var_in_scope,
+            &get_accessible_fn_by_name,
+            imports,
+          )
+          .and_then(|expr| Ok(Statement::ExprStatement(expr, true))),
           Return(expr) => Statement::new_return(
             expr,
             parent_func,
@@ -284,12 +335,14 @@ impl Statement {
             statement.end,
             &var_in_scope,
             &get_accessible_fn_by_name,
+            imports,
           ),
           SetterCall(setter_call) => Statement::new_setter_call(
             setter_call,
             statement.begin,
             &var_in_scope,
             &get_accessible_fn_by_name,
+            imports,
           ),
           _ => Err(vec![CompileError::NotAllowedStatementInLimitedBlock(
             statement.begin,
@@ -354,6 +407,7 @@ fn enumerate_same_level_functions(
 impl Program {
   pub fn from_statements(statements: Vec<tokenizer::Statement>) -> CompileResult<Self> {
     let mut errors = Vec::new();
+    let mut imports = ImportMap::default();
     let (mut functions, statements): (Vec<_>, Vec<_>) = statements
       .into_iter()
       .partition(|s| matches!(s.kind, tokenizer::StatementKind::FnDecl(_)));
@@ -431,7 +485,7 @@ impl Program {
     // compile UncompiledFunctions
     let compiled_functions = uncompiled_functions
       .into_iter()
-      .map(Function::compile)
+      .map(|f| Function::compile(f, &mut imports))
       .filter_map(|compiled| match compiled {
         Ok(compiled) => Some(compiled),
         Err(mut res) => {
@@ -440,18 +494,21 @@ impl Program {
         }
       })
       .collect();
+    let mut imports: Vec<Import> = imports.map.into_iter().map(|e| e.1).collect();
+    imports.sort_by_key(|e| e.idx);
 
     errors_or(
       errors,
       Program {
         functions: compiled_functions,
+        imports,
       },
     )
   }
 }
 
 impl Function {
-  fn compile(uncompiled: UncompiledFnCarrier) -> CompileResult<Self> {
+  fn compile(uncompiled: UncompiledFnCarrier, imports: &mut ImportMap) -> CompileResult<Self> {
     let mut errors = Vec::new();
     let uncompiled = uncompiled.borrow();
 
@@ -495,6 +552,7 @@ impl Function {
             &uncompiled,
             &var_in_scope,
             &get_accessible_fn_by_name,
+            imports,
           ) {
             Ok(expr) => expr,
             Err(mut res) => {
@@ -527,8 +585,13 @@ impl Function {
           }
         }
         ExprStatement(expr) => {
-          match Expression::from_token(expr, &uncompiled, &var_in_scope, &get_accessible_fn_by_name)
-          {
+          match Expression::from_token(
+            expr,
+            &uncompiled,
+            &var_in_scope,
+            &get_accessible_fn_by_name,
+            imports,
+          ) {
             Ok(expr) => func.code.push(Statement::ExprStatement(expr, true)),
             Err(mut res) => errors.append(&mut res),
           }
@@ -540,6 +603,7 @@ impl Function {
           statement.end,
           &var_in_scope,
           &get_accessible_fn_by_name,
+          imports,
         ) {
           Ok(stat) => func.code.push(stat),
           Err(mut e) => errors.append(&mut e),
@@ -549,6 +613,7 @@ impl Function {
           statement.begin,
           &var_in_scope,
           &get_accessible_fn_by_name,
+          imports,
         ) {
           Ok(stat) => func.code.push(stat),
           Err(mut e) => errors.append(&mut e),
@@ -559,6 +624,7 @@ impl Function {
             &uncompiled,
             &var_in_scope,
             &get_accessible_fn_by_name,
+            imports,
           ) {
             Ok(res) => res,
             Err(mut e) => {
@@ -571,6 +637,7 @@ impl Function {
             &uncompiled,
             &var_in_scope,
             &get_accessible_fn_by_name,
+            imports,
           ) {
             Ok(res) => res,
             Err(mut e) => {
@@ -625,6 +692,7 @@ impl Function {
             &uncompiled,
             &var_in_scope,
             &get_accessible_fn_by_name,
+            imports,
           ) {
             Ok(res) => res,
             Err(mut e) => {
@@ -731,6 +799,7 @@ mod test {
   }
   #[test]
   fn test_expression_from_token() {
+    let mut imports = ImportMap::default();
     let varname = "a".to_string();
     let var_in_scope: HashMap<String, Variable> = HashMap::from([(
       varname.clone(),
@@ -821,6 +890,7 @@ mod test {
           &func_borrowed,
           &var_in_scope,
           &fn_getter,
+          &mut imports,
         )
         .unwrap_or_else(|err| {
           panic!(
@@ -862,6 +932,7 @@ mod test {
           &func_borrowed,
           &var_in_scope,
           &fn_getter,
+          &mut imports,
         )
         .err()
         .unwrap_or_else(|| panic!("Expr is expected to fail: {:?}", element));
@@ -903,6 +974,7 @@ mod test {
     .into_iter()
     .collect();
     let get_accessible_fn_by_name: AccessibleFnGetter = Box::new(|_: &String| None);
+    let mut imports = ImportMap::default();
 
     {
       use tokenizer::ExprElement::Int;
@@ -913,6 +985,7 @@ mod test {
         pos,
         &var_in_scope,
         &get_accessible_fn_by_name,
+        &mut imports,
       )
       .unwrap() else {
         unreachable!();
@@ -929,6 +1002,7 @@ mod test {
         &func.borrow(),
         &var_in_scope,
         &get_accessible_fn_by_name,
+        &mut imports,
       )
       .unwrap();
       assert_eq!(expr.expr_stack[0], ExprCommand::ImmI32(0));

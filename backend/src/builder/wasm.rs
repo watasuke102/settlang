@@ -5,51 +5,62 @@ pub fn build(program: compile::Program) -> Result<Vec<u8>, String> {
     0x00, 0x61, 0x73, 0x6d, // magic   = \0 + 'asm'
     0x01, 0x00, 0x00, 0x00, // version = 1
   ];
-  wasm.append(&mut section(1, type_section_contents(&program.functions)?));
-  wasm.append(&mut section(
-    3,
-    function_section_contents(&program.functions),
-  ));
-  wasm.append(&mut section(
-    7,
-    export_section_contents(&program.functions)?,
-  ));
-  wasm.append(&mut section(10, code_section_contents(&program.functions)?));
+  wasm.append(&mut section(1, type_section_contents(&program)?));
+  wasm.append(&mut section(2, import_section_contents(&program)));
+  wasm.append(&mut section(3, function_section_contents(&program)));
+  wasm.append(&mut section(7, export_section_contents(&program)?));
+  wasm.append(&mut section(10, code_section_contents(&program)?));
   Ok(wasm)
 }
 
-fn type_section_contents(functions: &Vec<compile::Function>) -> Result<Vec<u8>, String> {
-  let mut contents = to_signed_leb128(functions.len() as i64);
-  for function in functions {
+fn type_section_contents(program: &compile::Program) -> Result<Vec<u8>, String> {
+  let mut contents = to_signed_leb128((program.functions.len() + program.imports.len()) as i64);
+  let imports_iter = program.imports.iter().map(|e| (&e.args, e.return_type));
+  let functions_iter = program.functions.iter().map(|f| (&f.args, f.return_type));
+  for (args, return_type) in imports_iter.chain(functions_iter) {
     // Function Type begin
     contents.push(0x60);
     // num params (number of arguments)
-    contents.append(&mut to_signed_leb128(function.args.len() as i64));
-    for arg_type in &function.args {
+    contents.append(&mut to_signed_leb128(args.len() as i64));
+    for arg_type in args {
       contents.push(to_wasm_numtype(arg_type)?)
     }
     // num results (number of arguments)
-    if function.return_type == compile::Type::Void {
+    if return_type == compile::Type::Void {
       contents.push(0);
     } else {
       contents.push(1);
-      contents.push(to_wasm_numtype(&function.return_type)?);
+      contents.push(to_wasm_numtype(&return_type)?);
     }
   }
   Ok(contents)
 }
 
-fn function_section_contents(functions: &Vec<compile::Function>) -> Vec<u8> {
-  let mut contents = to_signed_leb128(functions.len() as i64);
-  for i in 0..functions.len() as i64 {
-    // function[i] signature index
-    contents.append(&mut to_signed_leb128(i));
+fn import_section_contents(program: &compile::Program) -> Vec<u8> {
+  let mut contents = to_signed_leb128(program.imports.len() as i64);
+  for import in &program.imports {
+    contents.append(&mut to_signed_leb128(import.module_name.len() as i64));
+    contents.extend_from_slice(import.module_name.as_bytes());
+    contents.append(&mut to_signed_leb128(import.name.len() as i64));
+    contents.extend_from_slice(import.name.as_bytes());
+    contents.push(0); // imported item is function
+    contents.append(&mut to_signed_leb128(import.idx as i64));
   }
   contents
 }
 
-fn export_section_contents(functions: &Vec<compile::Function>) -> Result<Vec<u8>, String> {
-  let main_function = functions
+fn function_section_contents(program: &compile::Program) -> Vec<u8> {
+  let mut contents = to_signed_leb128(program.functions.len() as i64);
+  for i in 0..program.functions.len() as i64 {
+    // function[i] signature index
+    contents.append(&mut to_signed_leb128(program.imports.len() as i64 + i));
+  }
+  contents
+}
+
+fn export_section_contents(program: &compile::Program) -> Result<Vec<u8>, String> {
+  let main_function = program
+    .functions
     .iter()
     .find(|f| f.name == "main")
     .ok_or("Function named 'main' is not found".to_string())?;
@@ -59,20 +70,25 @@ fn export_section_contents(functions: &Vec<compile::Function>) -> Result<Vec<u8>
   contents.append(&mut to_signed_leb128(export_name.len() as i64));
   contents.extend_from_slice(export_name.as_bytes());
   contents.push(0); // exported item is function
-  contents.append(&mut to_signed_leb128(main_function.idx as i64));
+  contents.append(&mut to_signed_leb128(
+    (program.imports.len() + main_function.idx) as i64,
+  ));
   Ok(contents)
 }
 
-fn code_section_contents(functions: &Vec<compile::Function>) -> Result<Vec<u8>, String> {
-  let mut contents = to_signed_leb128(functions.len() as i64);
-  for function in functions {
+fn code_section_contents(program: &compile::Program) -> Result<Vec<u8>, String> {
+  let mut contents = to_signed_leb128(program.functions.len() as i64);
+  for function in &program.functions {
     let mut locals = to_signed_leb128(function.variables.len() as i64);
     for var in &function.variables {
       locals.push(1); // local decl count (?)
       locals.push(to_wasm_numtype(&var.vartype)?);
     }
     let mut expr = Vec::new();
-    expr.append(&mut assemble_statements(&function.code)?);
+    expr.append(&mut assemble_statements(
+      &function.code,
+      program.imports.len(),
+    )?);
     expr.push(Inst::End as u8);
     contents.append(&mut to_signed_leb128((locals.len() + expr.len()) as i64)); // func body size
     contents.append(&mut locals);
@@ -80,45 +96,50 @@ fn code_section_contents(functions: &Vec<compile::Function>) -> Result<Vec<u8>, 
   }
   Ok(contents)
 }
-fn assemble_statements(statements: &Vec<compile::Statement>) -> Result<Vec<u8>, String> {
+fn assemble_statements(
+  statements: &Vec<compile::Statement>,
+  imports_len: usize,
+) -> Result<Vec<u8>, String> {
   let mut expr = Vec::new();
   for statement in statements.iter() {
     use compile::Statement::*;
     match statement {
       VarInitialize(idx, initial_value) => {
-        expr.append(&mut assemble_expr(&initial_value.expr_stack)?);
+        expr.append(&mut assemble_expr(&initial_value.expr_stack, imports_len)?);
         expr.push(Inst::LocalSet as u8);
         expr.append(&mut to_signed_leb128(*idx as i64));
       }
       ExprStatement(e, should_drop) => {
-        expr.append(&mut assemble_expr(&e.expr_stack)?);
+        expr.append(&mut assemble_expr(&e.expr_stack, imports_len)?);
         if e.result_type != compile::Type::Void && *should_drop {
           expr.push(Inst::Drop as u8);
         }
       }
       Return(e) => {
-        expr.append(&mut assemble_expr(&e.expr_stack)?);
+        expr.append(&mut assemble_expr(&e.expr_stack, imports_len)?);
         expr.push(Inst::Return as u8);
       }
       SetterCall(mutate_info) => {
         // push arguments
-        expr.append(&mut assemble_expr(&mutate_info.arg_stack)?);
+        expr.append(&mut assemble_expr(&mutate_info.arg_stack, imports_len)?);
         // call function as setter; top of the stack will become a new value of variable
         expr.push(Inst::Call as u8);
-        expr.append(&mut to_signed_leb128(mutate_info.setter as i64));
+        expr.append(&mut to_signed_leb128(
+          (imports_len + mutate_info.setter) as i64,
+        ));
         // mutate local (variable)
         expr.push(Inst::LocalSet as u8);
         expr.append(&mut to_signed_leb128(mutate_info.var as i64));
       }
       ForLoop(for_loop) => {
-        expr.append(&mut assemble_expr(&for_loop.begin.expr_stack)?);
+        expr.append(&mut assemble_expr(&for_loop.begin.expr_stack, imports_len)?);
         expr.push(Inst::LocalSet as u8);
         expr.append(&mut to_signed_leb128(for_loop.cnt_var_idx as i64));
 
         expr.push(Inst::Loop as u8);
         expr.push(0x40); // void; 'for' block does not (is not expected to) return value
 
-        expr.append(&mut assemble_statements(&for_loop.code)?);
+        expr.append(&mut assemble_statements(&for_loop.code, imports_len)?);
 
         // i = 'i+1'
         expr.push(Inst::LocalGet as u8);
@@ -138,7 +159,7 @@ fn assemble_statements(statements: &Vec<compile::Statement>) -> Result<Vec<u8>, 
         expr.push(Inst::LocalTee as u8);
         expr.append(&mut to_signed_leb128(for_loop.cnt_var_idx as i64));
         // if i == end (i is remained on the stack)
-        expr.append(&mut assemble_expr(&for_loop.end.expr_stack)?);
+        expr.append(&mut assemble_expr(&for_loop.end.expr_stack, imports_len)?);
         if for_loop.end.result_type == compile::Type::I32 {
           expr.push(Inst::NonEqI32 as u8);
         } else if for_loop.end.result_type == compile::Type::I64 {
@@ -154,7 +175,10 @@ fn assemble_statements(statements: &Vec<compile::Statement>) -> Result<Vec<u8>, 
   }
   Ok(expr)
 }
-fn assemble_expr(commands: &Vec<compile::expression::ExprCommand>) -> Result<Vec<u8>, String> {
+fn assemble_expr(
+  commands: &Vec<compile::expression::ExprCommand>,
+  imports_len: usize,
+) -> Result<Vec<u8>, String> {
   use compile::Type;
   let mut res = Vec::new();
   let mut current_type = Type::I64;
@@ -186,17 +210,17 @@ fn assemble_expr(commands: &Vec<compile::expression::ExprCommand>) -> Result<Vec
       BitAnd => res.push(map!(AndI32, AndI64)),
       LogicOr | LogicAnd => unreachable!(),
       IfExpr(if_expr) => {
-        res.append(&mut assemble_expr(&if_expr.cond.expr_stack)?);
+        res.append(&mut assemble_expr(&if_expr.cond.expr_stack, imports_len)?);
         res.push(If as u8);
         res.push(if if_expr.result_type == compile::Type::Void {
           0x40
         } else {
           to_wasm_numtype(&if_expr.result_type)?
         });
-        res.append(&mut assemble_statements(&if_expr.then)?);
+        res.append(&mut assemble_statements(&if_expr.then, imports_len)?);
         if let Some(ref otherwise) = if_expr.otherwise {
           res.push(Else as u8);
-          res.append(&mut assemble_statements(otherwise)?);
+          res.append(&mut assemble_statements(otherwise, imports_len)?);
         }
         res.push(End as u8);
       }
@@ -216,6 +240,11 @@ fn assemble_expr(commands: &Vec<compile::expression::ExprCommand>) -> Result<Vec
         current_type = *vartype;
       }
       FnCall(idx, return_type) => {
+        res.push(Call as u8);
+        res.append(&mut to_signed_leb128((imports_len + *idx) as i64));
+        current_type = *return_type;
+      }
+      StdlibCall(idx, return_type) => {
         res.push(Call as u8);
         res.append(&mut to_signed_leb128(*idx as i64));
         current_type = *return_type;

@@ -5,10 +5,9 @@ on:
     branches: ["main"]
 
 jobs:
-  build:
+  deploy:
     permissions:
-      pages: write
-      id-token: write
+      contents: write
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -19,7 +18,7 @@ jobs:
           cache: "npm"
       # https://blog.ojisan.io/actions-rs-cargo-ari-nashi/
       - name: Setup Rust toolchain
-      - run: rustup target install wasm32-unknown-unknown
+        run: rustup target install wasm32-unknown-unknown
       - name: Setup npm packages
         run: |
           cd playground_front && npm install

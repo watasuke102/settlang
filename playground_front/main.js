@@ -4,34 +4,36 @@ const btn = document.getElementById('run');
 const output_area = document.getElementById('output_area');
 const input_area = document.getElementById('input_area');
 if (!btn || !output_area || !input_area) {
-  throw new Error();
+  throw new Error('Elements not found');
 }
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 let mem_viewer;
-function print(str_ptr, ...args) {
-  const str = (() => {
-    const buffer = [];
-    let i = BigInt(8); // data section is loaded 0x08
-    while (true) {
-      const c = mem_viewer.getUint8(Number(str_ptr + i));
-      if (c == 0) {
-        break;
-      }
-      buffer.push(c);
-      ++i;
+function get_str_by_offset(str_ptr) {
+  const buffer = [];
+  let i = BigInt(8); // data section is loaded 0x08
+  while (true) {
+    const c = mem_viewer.getUint8(Number(str_ptr + i));
+    if (c == 0) {
+      break;
     }
-    const array = new Uint8Array(buffer);
-    return decoder.decode(array);
-  })();
-  let str_splited = str.split('{}');
+    buffer.push(c);
+    ++i;
+  }
+  const array = new Uint8Array(buffer);
+  return decoder.decode(array);
+}
+function format(str_ptr, ...args) {
+  let result = '';
+  let str_splited = get_str_by_offset(str_ptr).split('{}');
   for (let i = 0; i < str_splited.length; ++i) {
-    output_area.value += str_splited[i];
+    result += str_splited[i];
     if (i !== str_splited.length - 1) {
-      output_area.value += args[i] ?? '';
+      result += args[i] ?? '';
     }
   }
+  return result;
 }
 
 async function init() {
@@ -86,11 +88,13 @@ async function init() {
       const generaged = await WebAssembly.instantiate(output, {
         // stdlib!
         std: {
-          print,
-          println: (str_ptr, ...arg) => {
-            print(str_ptr, ...arg);
-            output_area.value += '\n';
+          print: (str_ptr, ...arg) => {
+            output_area.value += format(str_ptr, ...arg);
           },
+          println: (str_ptr, ...arg) => {
+            output_area.value += format(str_ptr, ...arg) + '\n';
+          },
+          alert: (str_ptr, ...arg) => alert(format(str_ptr, ...arg)),
           read: () => {
             try {
               const user_input = window.prompt('Please enter a number') ?? '0';

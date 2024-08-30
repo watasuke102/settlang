@@ -8,8 +8,13 @@ pub struct Stdlib {
 }
 pub fn get_stdlib(name: &String, args: &Vec<Type>) -> Option<Stdlib> {
   let return_type = match (name.as_str(), args.as_slice()) {
-    ("print", _) => Type::Void,
-    ("println", _) => Type::Void,
+    ("print", v) | ("println", v) => {
+      if v.len() > 0 && v[0] == Type::StrLiteral {
+        Type::Void
+      } else {
+        return None;
+      }
+    }
     ("read", []) => Type::I64,
     ("random", [Type::I64, Type::I64]) => Type::I64,
     _ => return None,

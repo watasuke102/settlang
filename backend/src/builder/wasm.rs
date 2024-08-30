@@ -8,8 +8,12 @@ pub fn build(program: compile::Program) -> Result<Vec<u8>, String> {
   wasm.append(&mut section(1, type_section_contents(&program)?));
   wasm.append(&mut section(2, import_section_contents(&program)));
   wasm.append(&mut section(3, function_section_contents(&program)));
+  wasm.append(&mut section(5, memory_section_contents()));
   wasm.append(&mut section(7, export_section_contents(&program)?));
+  // data count section must be placed before code section
+  wasm.append(&mut section(12, data_count_section_contents()));
   wasm.append(&mut section(10, code_section_contents(&program)?));
+  wasm.append(&mut section(11, data_section_contents(&program)));
   Ok(wasm)
 }
 
@@ -58,14 +62,24 @@ fn function_section_contents(program: &compile::Program) -> Vec<u8> {
   contents
 }
 
+fn memory_section_contents() -> Vec<u8> {
+  vec![
+    1, // there is just one memory
+    0, // specify only memory (page) min
+    1, // min=1, max=<empty>
+  ]
+}
+
 fn export_section_contents(program: &compile::Program) -> Result<Vec<u8>, String> {
   let main_function = program
     .functions
     .iter()
     .find(|f| f.name == "main")
     .ok_or("Function named 'main' is not found".to_string())?;
-  let mut contents = vec![1 /* num exports (export only one function) */];
-  // function name
+  let mut contents = vec![
+    2, // num exports (export only one function and one memory)
+  ];
+  // function
   let export_name = "main";
   contents.append(&mut to_signed_leb128(export_name.len() as i64));
   contents.extend_from_slice(export_name.as_bytes());
@@ -73,6 +87,12 @@ fn export_section_contents(program: &compile::Program) -> Result<Vec<u8>, String
   contents.append(&mut to_signed_leb128(
     (program.imports.len() + main_function.idx) as i64,
   ));
+  // memory
+  let export_name = "memory";
+  contents.append(&mut to_signed_leb128(export_name.len() as i64));
+  contents.extend_from_slice(export_name.as_bytes());
+  contents.push(2); // exported item is memory
+  contents.push(0); // memory index
   Ok(contents)
 }
 
@@ -85,6 +105,20 @@ fn code_section_contents(program: &compile::Program) -> Result<Vec<u8>, String> 
       locals.push(to_wasm_numtype(&var.vartype)?);
     }
     let mut expr = Vec::new();
+    if function.name == "main" {
+      use Inst::*;
+      expr.push(ConstI32 as u8);
+      expr.push(8); // dst
+      expr.push(ConstI32 as u8);
+      expr.push(0); // src
+      expr.push(ConstI32 as u8);
+      expr.append(&mut to_signed_leb128(program.data.len() as i64));
+      // memory.init
+      expr.push(0xfc);
+      expr.push(8);
+      expr.push(0); // index = 0
+      expr.push(0);
+    }
     expr.append(&mut assemble_statements(
       &function.code,
       program.imports.len(),
@@ -96,6 +130,21 @@ fn code_section_contents(program: &compile::Program) -> Result<Vec<u8>, String> 
   }
   Ok(contents)
 }
+
+fn data_section_contents(program: &compile::Program) -> Vec<u8> {
+  let mut contents = vec![
+    1, // mum data
+    1, // passive data
+  ];
+  contents.append(&mut to_signed_leb128(program.data.len() as i64));
+  contents.extend(&program.data);
+  contents
+}
+
+fn data_count_section_contents() -> Vec<u8> {
+  vec![1]
+}
+
 fn assemble_statements(
   statements: &Vec<compile::Statement>,
   imports_len: usize,
@@ -234,6 +283,10 @@ fn assemble_expr(
         res.append(&mut to_signed_leb128(*imm as i64));
         current_type = Type::I64;
       }
+      StrLiteral(offset) => {
+        res.push(ConstI64 as u8);
+        res.append(&mut to_signed_leb128(*offset as i64));
+      }
       PushVar(idx, vartype) => {
         res.push(LocalGet as u8);
         res.append(&mut to_signed_leb128(*idx as i64));
@@ -276,6 +329,7 @@ fn to_wasm_numtype(compile_type: &compile::Type) -> Result<u8, String> {
   match compile_type {
     compile::Type::I32 => Ok(Numtype::I32 as u8),
     compile::Type::I64 => Ok(Numtype::I64 as u8),
+    compile::Type::StrLiteral => Ok(Numtype::I64 as u8),
     _ => Err(format!("Invalid type ({:?})", compile_type)),
   }
 }

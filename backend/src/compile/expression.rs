@@ -6,8 +6,8 @@ use std::{
 };
 
 use super::{
-  i64_to_i32, AccessibleFnGetter, CompileResult, ImportMap, Statement, Type, UncompiledFunction,
-  Variable,
+  i64_to_i32, AccessibleFnGetter, CompileResult, ImportMap, Statement, StringData, Type,
+  UncompiledFunction, Variable,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -30,6 +30,7 @@ pub enum ExprCommand {
   IfExpr(If),
   ImmI32(i32),
   ImmI64(i64),
+  StrLiteral(usize),    // offset
   PushVar(usize, Type), // idx, vartype
   FnCall(usize, Type),  //idx, return type
   StdlibCall(usize, Type),
@@ -87,6 +88,7 @@ impl Expression {
     var_in_scope: &HashMap<String, Variable>,
     get_accessible_fn_by_name: &AccessibleFnGetter,
     imports: &mut ImportMap,
+    str_data: &mut StringData,
   ) -> CompileResult<Self> {
     if let Ok(imm) = token.element._eval() {
       return Ok(Expression {
@@ -109,6 +111,7 @@ impl Expression {
         var_in_scope,
         get_accessible_fn_by_name,
         imports,
+        str_data,
       )
       .or_else(|mut res| {
         errors.append(&mut res);
@@ -120,6 +123,7 @@ impl Expression {
         var_in_scope,
         get_accessible_fn_by_name,
         imports,
+        str_data,
       )
       .or_else(|mut res| {
         errors.append(&mut res);
@@ -212,6 +216,10 @@ impl Expression {
         Type::I64 => expr_stack.push(ExprCommand::ImmI64(*imm)),
         _ => panic!("Fail imm : {:?}", token), // FIXME: when this happen?
       },
+      StrLiteral(string) => {
+        expr_stack.push(ExprCommand::StrLiteral(str_data.get_offset(&string)));
+        result_type.get_or_init(|| Type::StrLiteral);
+      }
       Variable(var_name, pos) => match var_in_scope.get(var_name) {
         Some(var) => {
           expr_stack.push(ExprCommand::PushVar(var.idx, var.vartype.clone()));
@@ -226,6 +234,7 @@ impl Expression {
           var_in_scope,
           get_accessible_fn_by_name,
           imports,
+          str_data,
         ) {
           Ok(res) => res,
           Err(mut e) => {
@@ -269,6 +278,7 @@ impl Expression {
               var_in_scope,
               get_accessible_fn_by_name,
               imports,
+              str_data,
             ) {
               Ok(res) => res,
               Err(mut err) => {
@@ -312,6 +322,7 @@ impl Expression {
           var_in_scope,
           get_accessible_fn_by_name,
           imports,
+          str_data,
         ) {
           Ok(mut expr) => {
             expr_stack.append(&mut expr);
@@ -331,6 +342,7 @@ impl Expression {
           var_in_scope,
           get_accessible_fn_by_name,
           imports,
+          str_data,
         ) {
           Ok(res) => res,
           Err(mut e) => {
@@ -344,6 +356,7 @@ impl Expression {
           var_in_scope,
           get_accessible_fn_by_name,
           imports,
+          str_data,
         ) {
           Ok(res) => res,
           Err(mut e) => {
@@ -369,6 +382,7 @@ impl Expression {
             var_in_scope,
             get_accessible_fn_by_name,
             imports,
+            str_data,
           ) {
             Ok(res) => res,
             Err(mut e) => {
@@ -420,6 +434,7 @@ pub(super) fn exprcomand_from_token_vec(
   var_in_scope: &HashMap<String, Variable>,
   get_accessible_fn_by_name: &AccessibleFnGetter,
   imports: &mut ImportMap,
+  str_data: &mut StringData,
 ) -> CompileResult<Vec<ExprCommand>> {
   let mut errors = Vec::new();
   let mut arguments_expr = Vec::new();
@@ -430,6 +445,7 @@ pub(super) fn exprcomand_from_token_vec(
       var_in_scope,
       get_accessible_fn_by_name,
       imports,
+      str_data,
     ) {
       Ok(res) => res,
       Err(mut err) => {

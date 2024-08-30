@@ -119,8 +119,10 @@ pub fn mul(expecter: Expecter) -> Expecter {
 }
 pub fn seq(expecters: Vec<Expecter>) -> Expecter {
   Box::new(move |code| {
+    let initial_pos = code.pos();
     for expecter in &expecters {
       if let Err(e) = expecter(code) {
+        code.unwind(initial_pos);
         return Err(e);
       }
     }
@@ -145,6 +147,21 @@ pub fn optional(expecter: Expecter) -> Expecter {
     Ok(consumed) => return Ok(consumed),
     Err(ParseError::NoMatch) => return Ok(()),
     Err(e) => return Err(e),
+  })
+}
+pub fn until(expecter: Expecter) -> Expecter {
+  Box::new(move |code| {
+    let initial_pos = code.pos();
+    loop {
+      match expecter(code) {
+        Ok(()) => return Ok(()),
+        Err(ParseError::NoMatch | ParseError::PartialMatch(_)) => code.next(),
+        Err(ParseError::EmptyInput) => {
+          code.unwind(initial_pos);
+          return Err(ParseError::NoMatch);
+        }
+      }
+    }
   })
 }
 
@@ -261,6 +278,13 @@ end",
       tester(         alpha() ) ((code, Err(ParseError::NoMatch)));
       tester(optional(alpha())) ((code, Ok(code)));
     }
+  }
+  #[test]
+  fn test_until() {
+    tester(until(char('!')))(("Hello!World!", Ok("World!")));
+    tester(until(str("ABC")))(("AAAABCD", Ok("D")));
+    // tester(until(str("return")))(("retval", Err(ParseError::NoMatch))); // should not return PartialMatch
+    tester(until(space()))(("abc", Err(ParseError::NoMatch)));
   }
   #[test]
   #[rustfmt::skip]

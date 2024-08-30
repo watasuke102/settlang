@@ -1,13 +1,40 @@
 import './style.css';
 
-async function init() {
-  const btn = document.getElementById('run');
-  const output_area = document.getElementById('output_area');
-  const input_area = document.getElementById('input_area');
-  if (!btn || !output_area || !input_area) {
-    throw new Error();
-  }
+const btn = document.getElementById('run');
+const output_area = document.getElementById('output_area');
+const input_area = document.getElementById('input_area');
+if (!btn || !output_area || !input_area) {
+  throw new Error();
+}
 
+const encoder = new TextEncoder();
+const decoder = new TextDecoder();
+let mem_viewer;
+function print(str_ptr, ...args) {
+  const str = (() => {
+    const buffer = [];
+    let i = BigInt(8); // data section is loaded 0x08
+    while (true) {
+      const c = mem_viewer.getUint8(Number(str_ptr + i));
+      if (c == 0) {
+        break;
+      }
+      buffer.push(c);
+      ++i;
+    }
+    const array = new Uint8Array(buffer);
+    return decoder.decode(array);
+  })();
+  let str_splited = str.split('{}');
+  for (let i = 0; i < str_splited.length; ++i) {
+    output_area.value += str_splited[i];
+    if (i !== str_splited.length - 1) {
+      output_area.value += args[i] ?? '';
+    }
+  }
+}
+
+async function init() {
   const compiler = await (async () => {
     try {
       const res = await fetch('/compiler.wasm');
@@ -30,7 +57,6 @@ async function init() {
     try {
       // get input and store it to memory
       output_area.value = '';
-      const encoder = new TextEncoder();
       const input = encoder.encode(input_area.value + ' ');
       const input_ptr = 16;
       {
@@ -53,7 +79,6 @@ async function init() {
       })();
       // if failed to compile, show it and return
       if (!is_succeed) {
-        const decoder = new TextDecoder();
         output_area.value = decoder.decode(output);
         return;
       }
@@ -61,8 +86,11 @@ async function init() {
       const generaged = await WebAssembly.instantiate(output, {
         // stdlib!
         std: {
-          print: (...arg) => (output_area.value += `${arg}`),
-          println: (...arg) => (output_area.value += `${arg}\n`),
+          print,
+          println: (str_ptr, ...arg) => {
+            print(str_ptr, ...arg);
+            output_area.value += '\n';
+          },
           read: () => {
             try {
               const user_input = window.prompt('Please enter a number') ?? '0';
@@ -83,10 +111,12 @@ async function init() {
           },
         },
       });
+      mem_viewer = new DataView(generaged.instance.exports.memory.buffer);
       const retval_compiled = generaged.instance.exports.main();
       output_area.value += 'result=' + retval_compiled;
     } catch (e) {
       output_area.value += '[error] failed to execute : ' + e;
+      throw e;
     }
   };
   btn.removeAttribute('disabled');

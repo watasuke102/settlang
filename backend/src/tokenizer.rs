@@ -288,6 +288,7 @@ impl PartialEq for Expression {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExprElement {
   Int(i64),
+  StrLiteral(String),
   Variable(String, source_code::Position),
   Cast(Type, Box<ExprElement>),
   FnCall(String, Vec<Expression>, source_code::Position),
@@ -480,6 +481,12 @@ fn expect_expression(code: &mut SourceCode) -> TokenizeResult<Expression> {
       Err(e) => return Err(e),
     }
 
+    match expect_str_literal(code) {
+      Ok(res) => return Ok(res),
+      Err(TokenizeError::NoMatch) => (),
+      Err(e) => return Err(e),
+    }
+
     match expect_constant(code) {
       Ok(res) => return Ok(res),
       Err(TokenizeError::NoMatch) => (),
@@ -510,6 +517,19 @@ fn expect_expression(code: &mut SourceCode) -> TokenizeResult<Expression> {
 
     return Ok(ExprElement::FnCall(ident, args, use_pos));
 
+    fn expect_str_literal(code: &mut SourceCode) -> TokenizeResult<ExprElement> {
+      consumed(code, seq(vec![char('"'), until(char('"'))])).map_or_else(
+        |_| {
+          if char('"')(code).is_ok() {
+            Err(TokenizeError::UnclosedDelimiter)
+          } else {
+            Err(TokenizeError::NoMatch)
+          }
+        },
+        // s is surrounded by "
+        |s| Ok(ExprElement::StrLiteral(s[1..s.len() - 1].to_string())),
+      )
+    }
     fn expect_constant(code: &mut SourceCode) -> TokenizeResult<ExprElement> {
       // boolean literal
       if expect_keyword(code, "false").is_ok() {
@@ -942,8 +962,17 @@ mod test {
       ("(1) _i64", Some(1), None),
       ("(2) _ i32", Some(2), None),
     ] {
-      let expr = match expect_expression(&mut SourceCode::new(code)) {
-        Ok(res) => res,
+      let (expr, expect_expr) = match expect_expression(&mut SourceCode::new(code)) {
+        Ok(res) => {
+          if let Some(expect) = expect_expr {
+            (res, expect)
+          } else {
+            panic!(
+              "code `{}` is successfully parsed but it isn't expected (parsed: {:?})",
+              code, res
+            );
+          }
+        }
         Err(e) => {
           if expect_expr.is_none() {
             continue;
@@ -960,9 +989,44 @@ mod test {
         }
       };
       assert_eq!(to_type.type_ident, expect_cast_type.unwrap());
-      assert_eq!(inner_expr._eval().unwrap(), expect_expr.unwrap());
+      assert_eq!(inner_expr._eval().unwrap(), expect_expr);
     }
   }
+
+  #[test]
+  fn test_expect_expression_str() {
+    for (code, expect) in [
+      (r#""hello""#, Some("hello")),
+      (r#""first""second""#, Some("first")),
+      (r#""hello"#, None),
+      (r"'hello'", None),
+    ] {
+      let (expr, expect) = match expect_expression(&mut SourceCode::new(code)) {
+        Ok(res) => {
+          if let Some(expect) = expect {
+            (res, expect)
+          } else {
+            panic!(
+              "code `{}` is successfully parsed but it isn't expected (parsed: {:?})",
+              code, res
+            );
+          }
+        }
+        Err(e) => {
+          if expect.is_none() {
+            continue;
+          } else {
+            panic!("code `{}` is not parsed as expression (err: {:?})", code, e);
+          }
+        }
+      };
+      let ExprElement::StrLiteral(parsed) = expr.element else {
+        panic!("code `{}` is not parsed as StrLiteral", code);
+      };
+      assert_eq!(&parsed, expect);
+    }
+  }
+
   #[test]
   fn expect_expression_succeeded_to_parse_expr_with_var() {
     let varname = "var".to_string();

@@ -1,0 +1,33 @@
+name: deploy playground
+
+on:
+  push:
+    branches: ["main"]
+
+jobs:
+  build:
+    permissions:
+      pages: write
+      id-token: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 22.0
+          cache: "npm"
+      # https://blog.ojisan.io/actions-rs-cargo-ari-nashi/
+      - name: Setup Rust toolchain
+      - run: rustup target install wasm32-unknown-unknown
+      - name: Setup npm packages
+        run: |
+          cd playground_front && npm install
+      - name: Build
+        run: make playground_all
+      - name: Deploy
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./playground_front/dist
+          publish_branch: playground-github-pages

@@ -326,7 +326,6 @@ impl ExprElement {
       GreaterEq(lhs, rhs) => Ok((lhs._eval()? >= rhs._eval()?) as i64),
       LogicAnd(lhs, rhs) => Ok(((lhs._eval()? != 0) && (rhs._eval()? != 0)) as i64),
       LogicOr(lhs, rhs) => Ok(((lhs._eval()? != 0) || (rhs._eval()? != 0)) as i64),
-      Cast(_, expr) => Ok(expr._eval()?),
       _ => Err(()),
     }
   }
@@ -953,8 +952,7 @@ mod test {
           }
         }
       };
-      assert_eq!(expr.element._eval().unwrap(), expect_expr.unwrap());
-      let ExprElement::Cast(to_type, _) = expr.element else {
+      let ExprElement::Cast(to_type, inner_expr) = expr.element else {
         if expect_cast_type.is_none() {
           continue;
         } else {
@@ -962,6 +960,7 @@ mod test {
         }
       };
       assert_eq!(to_type.type_ident, expect_cast_type.unwrap());
+      assert_eq!(inner_expr._eval().unwrap(), expect_expr.unwrap());
     }
   }
   #[test]

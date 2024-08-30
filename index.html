@@ -3,14 +3,32 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Settlang Playground" />
+    <meta property="og:url" content="https://watasuke102.github.io/settlang/" />
+    <meta
+      property="og:description"
+      content="A statically typed language that expresses mutability by whether variables have setters"
+    />
+    <meta
+      name="description"
+      content="A statically typed language that expresses mutability by whether variables have setters"
+    />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Settlang Playground" />
+    <meta name="twitter:url" content="https://watasuke102.github.io/settlang/" />
+    <meta
+      name="twitter:description"
+      content="A statically typed language that expresses mutability by whether variables have setters"
+    />
     <link rel="stylesheet" href="https://unpkg.com/@acab/reset.css@0.10.0/index.css" />
     <title>Settlang Playground</title>
-    <script type="module" crossorigin src="/settlang/assets/index-_Gzl8FZC.js"></script>
-    <link rel="stylesheet" crossorigin href="/settlang/assets/index-2pkvvTGy.css">
+    <script type="module" crossorigin src="/settlang/assets/index-2iovB_lU.js"></script>
+    <link rel="stylesheet" crossorigin href="/settlang/assets/index-BG1tOFHy.css">
   </head>
   <body>
     <main id="app">
-      <div id="landing">
+      <section id="landing">
         <div id="playground">
           <div class="heading_and_button">
             <span class="heading">input</span>
@@ -54,8 +72,47 @@ fn main() -> i64 {
         </div>
         <div id="langdesc">
           <h1>Settlang</h1>
+          <a
+            href="https://github.com/watasuke102/settlang"
+            target="_blank"
+            rel="nofollow noopener noreferrer"
+            id="gh-icon"
+          >
+            <svg role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <path
+                d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"
+              />
+            </svg>
+          </a>
         </div>
-      </div>
+      </section>
+      <hr />
+      <section id="documents">
+        <h2>Documents</h2>
+        <p>
+          Settlang is a statically typed programming language that expresses mutability by whether
+          variables have setters.
+        </p>
+        <p>Basic grammar and concepts are follow. See examples for details!</p>
+        <h3>Type</h3>
+        <ul>
+          <li>i32 : 32-bit signed integer</li>
+          <li>i64 : 64-bit signed integer</li>
+          <li>string : surrounded by ", can be used as a first argument of 'print' / 'println'</li>
+        </ul>
+        <h3>Expression</h3>
+        <ul>
+          <li>arithmetric -> +, -, *, /, %</li>
+          <li>compare -> ==, !=, &lt;, &lt;=, &gt;=, &gt;</li>
+          <li>logical AND &&, logical OR ||</li>
+        </ul>
+        <h3>Variable</h3>
+        <pre><code>'let' varname ':' typename ('|' setter function name)? '=' expr</code></pre>
+        <p>
+          Setter is a funcion that returns new value of the variable. The return value type of
+          setter and variablue type must match.
+        </p>
+      </section>
     </main>
   </body>
 </html>

@@ -24,7 +24,7 @@ jobs:
         run: |
           cd playground_front && npm install
       - name: Build
-        run: make playground_all
+        run: make playground
       - name: Deploy
         uses: peaceiris/actions-gh-pages@v4
         with:

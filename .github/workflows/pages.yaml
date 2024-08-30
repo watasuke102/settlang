@@ -16,7 +16,7 @@ jobs:
         with:
           node-version: 22.0
           cache: "npm"
-          cache-dependency-path: "playground-front/package-lock.json"
+          cache-dependency-path: "./playground_front/package-lock.json"
       # https://blog.ojisan.io/actions-rs-cargo-ari-nashi/
       - name: Setup Rust toolchain
         run: rustup target install wasm32-unknown-unknown

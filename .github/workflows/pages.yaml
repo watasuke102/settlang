@@ -19,7 +19,10 @@ jobs:
           cache-dependency-path: "./playground_front/package-lock.json"
       # https://blog.ojisan.io/actions-rs-cargo-ari-nashi/
       - name: Setup Rust toolchain
-        run: rustup target install wasm32-unknown-unknown
+        run: |
+          rustup toolchain install nightly
+          rustup default nightly
+          rustup target install wasm32-unknown-unknown
       - name: Setup npm packages
         run: |
           cd playground_front && npm install

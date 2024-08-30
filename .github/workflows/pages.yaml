@@ -10,12 +10,13 @@ jobs:
       contents: write
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: 22.0
           cache: "npm"
+          cache-dependency-path: "playground-front/package-lock.json"
       # https://blog.ojisan.io/actions-rs-cargo-ari-nashi/
       - name: Setup Rust toolchain
         run: rustup target install wasm32-unknown-unknown

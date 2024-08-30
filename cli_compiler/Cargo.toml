@@ -1,7 +1,0 @@
-[package]
-name = "cli_compiler"
-edition.workspace = true
-version.workspace = true
-
-[dependencies]
-backend = { path = "../backend" }

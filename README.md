@@ -1,6 +1,6 @@
 # Settlang
 
-Settlang is a statically-typed programming language that express mutability by whether variables have setter.
+Settlang is a statically typed programming language that expresses mutability by whether variables have setters.
 
 ## Let's try!
 

@@ -1,6 +1,5 @@
 #![feature(stmt_expr_attributes)]
 #![feature(once_cell_get_mut)]
-#![feature(let_chains)]
 
 use compile::Program;
 use source_code::SourceCode;

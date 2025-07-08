@@ -36,7 +36,7 @@ impl PartialEq for Type {
   }
 }
 
-pub fn expect_code(code: &mut SourceCode) -> TokenizeResult<Vec<Statement>> {
+pub fn expect_code(code: &'_ mut SourceCode) -> TokenizeResult<'_, Vec<Statement>> {
   let mut statements = Vec::new();
   loop {
     if let Err(ParseError::EmptyInput) = mul(space())(code) {
@@ -52,7 +52,7 @@ pub fn expect_code(code: &mut SourceCode) -> TokenizeResult<Vec<Statement>> {
   Ok(statements)
 }
 
-fn expect_statement(code: &mut SourceCode) -> TokenizeResult<Statement> {
+fn expect_statement(code: &'_ mut SourceCode) -> TokenizeResult<'_, Statement> {
   let pos = code.lines_and_cols();
   for test in [
     expect_fn_declaration,
@@ -68,7 +68,7 @@ fn expect_statement(code: &mut SourceCode) -> TokenizeResult<Statement> {
           kind:  res,
           begin: pos,
           end:   code.lines_and_cols(),
-        })
+        });
       }
       Err(TokenizeError::NoMatch) => (),
       Err(e) => return Err(e),
@@ -78,7 +78,7 @@ fn expect_statement(code: &mut SourceCode) -> TokenizeResult<Statement> {
 }
 
 /// (variable name, type, setter)
-fn expect_var_spec(code: &mut SourceCode) -> TokenizeResult<(String, Type, Option<Setter>)> {
+fn expect_var_spec(code: &'_ mut SourceCode) -> TokenizeResult<'_, (String, Type, Option<Setter>)> {
   let name = expect_ident(code)?;
   char(':')(code.skip_space()).or(Err(TokenizeError::Expected(": <type>")))?;
   code.skip_space();
@@ -107,7 +107,7 @@ pub struct Argument {
   pub vartype: Type,
   pub setter:  Option<Setter>,
 }
-fn expect_fn_declaration(code: &mut SourceCode) -> TokenizeResult<StatementKind> {
+fn expect_fn_declaration(code: &'_ mut SourceCode) -> TokenizeResult<'_, StatementKind> {
   expect_keyword(code, "fn")?;
   code.skip_space();
   let declared_pos = code.lines_and_cols();
@@ -163,7 +163,7 @@ pub struct Setter {
   pub name: String,
   pub pos:  source_code::Position,
 }
-fn expect_var_declaration(code: &mut SourceCode) -> TokenizeResult<StatementKind> {
+fn expect_var_declaration(code: &'_ mut SourceCode) -> TokenizeResult<'_, StatementKind> {
   expect_keyword(code, "let")?;
   let (name, vartype, setter) = expect_var_spec(code.skip_space())?;
   char('=')(code.skip_space()).or(Err(TokenizeError::Expected("= <initial value>")))?;
@@ -176,7 +176,7 @@ fn expect_var_declaration(code: &mut SourceCode) -> TokenizeResult<StatementKind
   }))
 }
 
-fn expect_return(code: &mut SourceCode) -> TokenizeResult<StatementKind> {
+fn expect_return(code: &'_ mut SourceCode) -> TokenizeResult<'_, StatementKind> {
   expect_keyword(code, "ret")?;
   match expect_expression(code.skip_space()) {
     Ok(res) => Ok(StatementKind::Return(Some(res))),
@@ -193,7 +193,7 @@ pub struct For {
   pub end:       Expression,
   pub code:      Vec<Statement>,
 }
-fn expect_for_loop(code: &mut SourceCode) -> TokenizeResult<StatementKind> {
+fn expect_for_loop(code: &'_ mut SourceCode) -> TokenizeResult<'_, StatementKind> {
   expect_keyword(code, "for")?;
   // use closure to prevent moving value
   let err = || TokenizeError::Expected("for <varname> in <begin>..<end>");
@@ -222,7 +222,7 @@ pub struct SetterCall {
   pub varname: String,
   pub args:    Vec<Expression>,
 }
-fn expect_setter_call(code: &mut SourceCode) -> TokenizeResult<StatementKind> {
+fn expect_setter_call(code: &'_ mut SourceCode) -> TokenizeResult<'_, StatementKind> {
   let initial_pos = code.pos();
   let varname = expect_ident(code).or_else(|err| {
     code.unwind(initial_pos);
@@ -331,10 +331,10 @@ impl ExprElement {
     }
   }
 }
-fn expect_expr_statement(code: &mut SourceCode) -> TokenizeResult<StatementKind> {
+fn expect_expr_statement(code: &'_ mut SourceCode) -> TokenizeResult<'_, StatementKind> {
   Ok(StatementKind::ExprStatement(expect_expression(code)?))
 }
-fn expect_expression(code: &mut SourceCode) -> TokenizeResult<Expression> {
+fn expect_expression(code: &'_ mut SourceCode) -> TokenizeResult<'_, Expression> {
   let begin = code.lines_and_cols();
   return Ok(Expression {
     element: expect_expr_logical_or(code)?,
@@ -342,7 +342,7 @@ fn expect_expression(code: &mut SourceCode) -> TokenizeResult<Expression> {
     end: code.lines_and_cols(),
   });
 
-  fn expect_expr_logical_or(code: &mut SourceCode) -> TokenizeResult<ExprElement> {
+  fn expect_expr_logical_or(code: &'_ mut SourceCode) -> TokenizeResult<'_, ExprElement> {
     let mut expr = expect_expr_logical_and(code)?;
     loop {
       let initial_pos = code.pos();
@@ -356,7 +356,7 @@ fn expect_expression(code: &mut SourceCode) -> TokenizeResult<Expression> {
     }
     Ok(expr)
   }
-  fn expect_expr_logical_and(code: &mut SourceCode) -> TokenizeResult<ExprElement> {
+  fn expect_expr_logical_and(code: &'_ mut SourceCode) -> TokenizeResult<'_, ExprElement> {
     let mut expr = expect_expr_eq(code)?;
     loop {
       let initial_pos = code.pos();
@@ -370,7 +370,7 @@ fn expect_expression(code: &mut SourceCode) -> TokenizeResult<Expression> {
     }
     Ok(expr)
   }
-  fn expect_expr_eq(code: &mut SourceCode) -> TokenizeResult<ExprElement> {
+  fn expect_expr_eq(code: &'_ mut SourceCode) -> TokenizeResult<'_, ExprElement> {
     let mut expr = expect_expr_cmp(code)?;
 
     // FIXME (?) : [(str("=="), ExprElement::Eq),(str("!="), ExprElement::NonEq)] is INVALID
@@ -392,7 +392,7 @@ fn expect_expression(code: &mut SourceCode) -> TokenizeResult<Expression> {
 
     Ok(expr)
   }
-  fn expect_expr_cmp(code: &mut SourceCode) -> TokenizeResult<ExprElement> {
+  fn expect_expr_cmp(code: &'_ mut SourceCode) -> TokenizeResult<'_, ExprElement> {
     let mut expr = expect_expr_add(code)?;
 
     let tester = [str("<="), str(">="), str("<"), str(">")];
@@ -418,7 +418,7 @@ fn expect_expression(code: &mut SourceCode) -> TokenizeResult<Expression> {
 
     Ok(expr)
   }
-  fn expect_expr_add(code: &mut SourceCode) -> TokenizeResult<ExprElement> {
+  fn expect_expr_add(code: &'_ mut SourceCode) -> TokenizeResult<'_, ExprElement> {
     let mut expr = expect_expr_mul(code)?;
 
     let tester = [char('+'), char('-')];
@@ -439,7 +439,7 @@ fn expect_expression(code: &mut SourceCode) -> TokenizeResult<Expression> {
 
     Ok(expr)
   }
-  fn expect_expr_mul(code: &mut SourceCode) -> TokenizeResult<ExprElement> {
+  fn expect_expr_mul(code: &'_ mut SourceCode) -> TokenizeResult<'_, ExprElement> {
     let mut expr = expect_expr_primary(code)?;
 
     let tester = [char('*'), char('/'), char('%')];
@@ -460,7 +460,7 @@ fn expect_expression(code: &mut SourceCode) -> TokenizeResult<Expression> {
 
     Ok(expr)
   }
-  fn expect_expr_primary(code: &mut SourceCode) -> TokenizeResult<ExprElement> {
+  fn expect_expr_primary(code: &'_ mut SourceCode) -> TokenizeResult<'_, ExprElement> {
     if char('(')(code).is_ok() {
       let Ok(expr) = expect_expression(code.skip_space()) else {
         return Err(TokenizeError::ExpectedExpression);
@@ -517,7 +517,7 @@ fn expect_expression(code: &mut SourceCode) -> TokenizeResult<Expression> {
 
     return Ok(ExprElement::FnCall(ident, args, use_pos));
 
-    fn expect_str_literal(code: &mut SourceCode) -> TokenizeResult<ExprElement> {
+    fn expect_str_literal(code: &'_ mut SourceCode) -> TokenizeResult<'_, ExprElement> {
       consumed(code, seq(vec![char('"'), until(char('"'))])).map_or_else(
         |_| {
           if char('"')(code).is_ok() {
@@ -530,7 +530,7 @@ fn expect_expression(code: &mut SourceCode) -> TokenizeResult<Expression> {
         |s| Ok(ExprElement::StrLiteral(s[1..s.len() - 1].to_string())),
       )
     }
-    fn expect_constant(code: &mut SourceCode) -> TokenizeResult<ExprElement> {
+    fn expect_constant(code: &'_ mut SourceCode) -> TokenizeResult<'_, ExprElement> {
       // boolean literal
       if expect_keyword(code, "false").is_ok() {
         return Ok(ExprElement::Int(0));
@@ -569,7 +569,7 @@ impl PartialEq for If {
     true
   }
 }
-fn expect_if(code: &mut SourceCode) -> TokenizeResult<If> {
+fn expect_if(code: &'_ mut SourceCode) -> TokenizeResult<'_, If> {
   seq(vec![str("if"), mul(space())])(code.skip_space()).or(Err(TokenizeError::NoMatch))?;
   let cond = expect_expression(code)?;
 
@@ -616,7 +616,7 @@ fn expect_if(code: &mut SourceCode) -> TokenizeResult<If> {
 }
 
 /// consume and return Ident (keyword, fn name, var name, type name)
-fn expect_ident(code: &mut SourceCode) -> TokenizeResult<String> {
+fn expect_ident(code: &'_ mut SourceCode) -> TokenizeResult<'_, String> {
   let identity = consumed(
     code,
     seq(vec![
@@ -627,7 +627,6 @@ fn expect_ident(code: &mut SourceCode) -> TokenizeResult<String> {
   .or(Err(TokenizeError::NoMatch))?;
   Ok(identity)
 }
-// (Why does this function require lifetime parameter??)
 fn expect_keyword<'a>(code: &'a mut SourceCode, keyword: &'static str) -> TokenizeResult<'a, ()> {
   let initial_pos = code.pos();
   let res = expect_ident(code);
@@ -638,7 +637,7 @@ fn expect_keyword<'a>(code: &'a mut SourceCode, keyword: &'static str) -> Tokeni
     Err(TokenizeError::NoMatch)
   }
 }
-fn expect_type(code: &mut SourceCode) -> TokenizeResult<Type> {
+fn expect_type(code: &'_ mut SourceCode) -> TokenizeResult<'_, Type> {
   let pos = code.lines_and_cols();
   let type_ident = expect_ident(code).or(Err(TokenizeError::ExpectedType))?;
   Ok(Type { type_ident, pos })

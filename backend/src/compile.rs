@@ -419,7 +419,7 @@ fn enumerate_same_level_functions(
       Ok(func) => {
         let func = Rc::new(RefCell::new(func));
         // push parent's owning_func as well
-        if let Some(ref parent) = parent_func {
+        if let Some(parent) = parent_func {
           parent
             .borrow_mut()
             .owning_func

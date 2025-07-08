@@ -3,7 +3,7 @@
 #[cfg(not(target_arch = "wasm32"))]
 compile_error!("target arch is not wasm");
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub fn build(input_ptr: *mut u8, input_len: usize) -> *const u8 {
   let mut output: Vec<u8> = 0u32.to_be_bytes().to_vec();
 

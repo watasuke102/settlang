@@ -5,6 +5,7 @@ edition.workspace = true
 
 # use only for unit test
 [dev-dependencies.wasmer]
-version = "4.3"
+version = "6"
 default-features = false
 features = ["std", "cranelift"]
+

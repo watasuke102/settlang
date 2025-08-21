@@ -175,7 +175,7 @@ pub fn consumed(code: &mut SourceCode, expecter: Expecter) -> Result<String, Par
 #[cfg(test)]
 mod test {
   use super::*;
-  /// [( input code, Ok(consumed) or Err(error kind) )].map( tester(Expecter) )
+  /// [( input code, Ok(consumed) or Err(error kind) )].into_iter().for_each( tester(Expecter) )
   fn tester(f: Expecter) -> impl Fn((&str, Result<&str, ParseError>)) {
     move |(code_str, expect)| {
       let mut code = SourceCode::new(code_str);
@@ -217,7 +217,8 @@ end",
       ("#** comment ****#", Ok("")),
       ("abc", Err(ParseError::NoMatch)),
     ]
-    .map(tester(space()));
+    .into_iter()
+    .for_each(tester(space()));
   }
   #[test]
   fn test_num() {
@@ -226,15 +227,20 @@ end",
       ("abc", Err(ParseError::NoMatch)),
       ("四", Err(ParseError::NoMatch)),
     ]
-    .map(tester(num()));
+    .into_iter()
+    .for_each(tester(num()));
   }
   #[test]
   fn test_alpha() {
-    [("abc", Ok("bc")), ("123", Err(ParseError::NoMatch))].map(tester(alpha()));
+    [("abc", Ok("bc")), ("123", Err(ParseError::NoMatch))]
+      .into_iter()
+      .for_each(tester(alpha()));
   }
   #[test]
   fn test_char() {
-    [("_test", Ok("test")), ("test", Err(ParseError::NoMatch))].map(tester(char('_')));
+    [("_test", Ok("test")), ("test", Err(ParseError::NoMatch))]
+      .into_iter()
+      .for_each(tester(char('_')));
   }
   #[test]
   fn test_str() {
@@ -243,7 +249,8 @@ end",
       ("12345", Err(ParseError::NoMatch)),
       ("retval", Err(ParseError::PartialMatch("ret".to_string()))),
     ]
-    .map(tester(str("return")));
+    .into_iter()
+    .for_each(tester(str("return")));
   }
 
   #[test]
@@ -254,11 +261,9 @@ end",
   }
   #[test]
   fn test_seq() {
-    [("a 0", Ok("")), ("1", Err(ParseError::NoMatch))].map(tester(seq(vec![
-      alpha(),
-      space(),
-      num(),
-    ])));
+    [("a 0", Ok("")), ("1", Err(ParseError::NoMatch))]
+      .into_iter()
+      .for_each(tester(seq(vec![alpha(), space(), num()])));
   }
   #[test]
   fn test_or() {
@@ -268,7 +273,8 @@ end",
       ("test", Ok("est")),
       ("++a", Err(ParseError::NoMatch)),
     ]
-    .map(tester(or(vec![space(), num(), alpha()])));
+    .into_iter()
+    .for_each(tester(or(vec![space(), num(), alpha()])));
   }
   #[test]
   fn test_optional() {
